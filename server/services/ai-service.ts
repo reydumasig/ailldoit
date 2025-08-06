@@ -129,11 +129,11 @@ export class AIService {
           
           console.log('🔍 Full response structure:', JSON.stringify(response, null, 2));
           
-          if (response?.images && response.images.length > 0) {
-            console.log(`🖼️ Generated ${response.images.length} images`);
+          if (response && (response as any).images && (response as any).images.length > 0) {
+            console.log(`🖼️ Generated ${(response as any).images.length} images`);
             
             const imageUrls: string[] = [];
-            for (const image of response.images) {
+            for (const image of (response as any).images) {
               if (image.data) {
                 // Convert to data URL for immediate display
                 const dataUrl = `data:image/png;base64,${image.data}`;
@@ -144,12 +144,12 @@ export class AIService {
             }
             
             return imageUrls;
-          } else if (response?.candidates && response.candidates.length > 0) {
+          } else if (response && (response as any).candidates && (response as any).candidates.length > 0) {
             // Handle different response format
-            console.log(`🖼️ Found ${response.candidates.length} candidates`);
+            console.log(`🖼️ Found ${(response as any).candidates.length} candidates`);
             
             const imageUrls: string[] = [];
-            for (const candidate of response.candidates) {
+            for (const candidate of (response as any).candidates) {
               if (candidate.content?.parts) {
                 for (const part of candidate.content.parts) {
                   if (part.inlineData && part.inlineData.data) {
@@ -261,7 +261,7 @@ export class AIService {
 
       console.log('✅ OpenAI DALL-E 3 images generated successfully!');
       
-      const imageUrls = response.data.map(img => img.url).filter(Boolean) as string[];
+      const imageUrls = response.data?.map(img => img.url).filter(Boolean) as string[];
       console.log(`📊 Generated ${imageUrls.length} image(s)`);
       
       return imageUrls;
@@ -271,33 +271,42 @@ export class AIService {
     }
   }
 
-  // Main image generation method with fallbacks - Replicate Primary
+  // Main image generation method with proper provider hierarchy: Replicate → Gemini → OpenAI DALL-E
   async generateAdImages(description: string, style: string = "modern"): Promise<string[]> {
     console.log(`🎨 Starting image generation: "${description}"`);
-    console.log(`📝 Using Replicate as primary image generator`);
+    console.log(`📝 Provider hierarchy: Replicate SDXL → Gemini Imagen 3 → OpenAI DALL-E 3`);
     
+    let replicateError, geminiError, openaiError;
+    
+    // 1st Priority: Replicate SDXL (Primary - most reliable for advertising images)
     try {
-      // Try Replicate SDXL first (as requested)
+      console.log('🎯 Trying Replicate SDXL (Primary)...');
       return await this.generateAdImagesReplicate(description, style);
     } catch (error: any) {
-      console.warn('⚠️ Replicate image generation failed:', error.message);
-      
-      // Fallback to OpenAI DALL-E 3 if Replicate fails
-      console.log('🔄 Falling back to OpenAI DALL-E 3 for image generation...');
-      try {
-        return await this.generateAdImagesOpenAI(description, style);
-      } catch (openaiError: any) {
-        console.error('❌ OpenAI fallback also failed:', openaiError.message);
-        
-        // Final fallback to Gemini (may still have billing issues)
-        console.log('🔄 Final fallback to Gemini...');
-        try {
-          return await this.generateAdImagesGemini(description, style);
-        } catch (geminiError: any) {
-          console.error('❌ All image generation methods failed');
-          throw new Error(`All image generation failed: Replicate: ${error.message}, OpenAI: ${openaiError.message}, Gemini: ${geminiError.message}`);
-        }
-      }
+      replicateError = error;
+      console.warn('⚠️ Replicate failed, trying Gemini Imagen 3:', error.message);
+    }
+    
+    // 2nd Priority: Gemini Imagen 3 (Secondary - Google's latest image model)
+    try {
+      console.log('🎯 Trying Gemini Imagen 3 (Secondary)...');
+      return await this.generateAdImagesGemini(description, style);
+    } catch (error: any) {
+      geminiError = error;
+      console.warn('⚠️ Gemini failed, trying OpenAI DALL-E 3:', error.message);
+    }
+    
+    // 3rd Priority: OpenAI DALL-E 3 (Final fallback - external URLs expire in 1-2 hours)
+    try {
+      console.log('🎯 Trying OpenAI DALL-E 3 (Final Fallback - URLs expire quickly)...');
+      return await this.generateAdImagesOpenAI(description, style);
+    } catch (error: any) {
+      openaiError = error;
+      console.error('❌ All image generation providers failed');
+      console.error('1. Replicate SDXL error:', replicateError?.message);
+      console.error('2. Gemini Imagen 3 error:', geminiError?.message);
+      console.error('3. OpenAI DALL-E 3 error:', openaiError?.message);
+      throw new Error('All image generation services are currently unavailable. Please try again later.');
     }
   }
 
@@ -426,7 +435,7 @@ export class AIService {
         prompt: enhancedPrompt,
         config: {
           aspectRatio: "16:9",
-          duration: "8s", // Set to 8 seconds
+          // Note: 8-second duration is implicit in the model
           includeAudio: true, // Enable audio generation
           personGeneration: "allow_all"
         },
@@ -512,7 +521,7 @@ export class AIService {
         prompt: enhancedPrompt,
         config: {
           aspectRatio: "16:9",
-          duration: "8s", // Set to 8 seconds
+          // Note: 8-second duration is implicit in the model
           includeAudio: true, // Enable audio generation
           personGeneration: "allow_all"
         },

@@ -4,9 +4,17 @@
 Ailldoit is a web application designed to generate viral, localized social media ad content using AI. It enables users to submit product briefs and automatically receive platform-specific ad content, including captions, hashtags, and video scripts, in multiple languages. The platform supports ad generation for TikTok, Instagram, and Facebook, incorporating A/B testing capabilities. Ailldoit aims to streamline content creation for social media marketing, offering AI-powered tools for generating creative prompts and ensuring content aligns with campaign objectives.
 
 ## Recent Changes (August 2025)
+### AI Image Provider Hierarchy Implementation (August 6, 2025)
+- **Provider Order Fixed**: Implemented correct fallback chain: Replicate SDXL → Gemini Imagen 3 → OpenAI DALL-E 3
+- **Primary Generator**: Replicate SDXL provides most reliable, high-quality advertising images
+- **Secondary Fallback**: Gemini Imagen 3 as backup when Replicate fails
+- **Final Fallback**: OpenAI DALL-E 3 only used as last resort (URLs expire in 1-2 hours)
+- **TypeScript Errors Fixed**: Resolved all LSP diagnostics and type safety issues
+- **Video Generation**: Maintains Gemini Veo 2/3 as primary with 8-second duration and audio
+- **Production Issue Resolved**: Fixed Kulay Natural Hair Serum campaign expired image URL
+
 ### AI Content Generation Audit & Optimization (August 6, 2025)
-- **Provider Hierarchy Updated**: Changed image generation to use Replicate SDXL as primary provider
-- **Configuration Optimized**: Text (OpenAI GPT-4o) → Images (Replicate SDXL) → Videos (Gemini Veo 2/3)
+- **Configuration Optimized**: Text (OpenAI GPT-4o) → Images (Replicate SDXL → Gemini → DALL-E) → Videos (Gemini Veo 2/3)
 - **Fallback System Enhanced**: Each provider has robust backup options for reliability
 - **Performance Improved**: Replicate SDXL provides consistent, high-quality advertising images
 - **Audio Integration**: Gemini Veo delivers 8-second videos with background music and sound effects
