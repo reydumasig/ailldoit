@@ -924,6 +924,142 @@ ${campaign.brief}`;
     }
   });
 
+  // Video Storage Audit - identify and fix expired URLs (superadmin only)
+  app.get("/api/admin/audit-videos", authenticateToken, requireSuperAdmin, async (req, res) => {
+    try {
+      console.log('🔒 Superadmin running video storage audit');
+      
+      // Get all video assets with campaign and user info
+      const videoAssets = await db.select({
+        assetId: assets.id,
+        campaignId: assets.campaignId,
+        campaignName: campaigns.name,
+        userEmail: users.email,
+        url: assets.url,
+        provider: assets.provider,
+        createdAt: assets.createdAt
+      })
+      .from(assets)
+      .innerJoin(campaigns, eq(assets.campaignId, campaigns.id))
+      .innerJoin(users, eq(campaigns.userId, users.id))
+      .where(eq(assets.type, 'video'));
+
+      const fs = await import('fs/promises');
+      const path = await import('path');
+      
+      const auditResults = {
+        totalAssets: videoAssets.length,
+        externalUrls: [] as any[],
+        localFiles: [] as any[],
+        missingFiles: [] as any[],
+        healthyAssets: [] as any[]
+      };
+
+      for (const asset of videoAssets) {
+        if (asset.url.startsWith('http://') || asset.url.startsWith('https://')) {
+          // External URL (will expire)
+          if (asset.url.includes('replicate.delivery') || asset.url.includes('googleapis.com')) {
+            auditResults.externalUrls.push({
+              ...asset,
+              issue: 'External URL will expire',
+              provider: asset.provider
+            });
+          } else {
+            auditResults.healthyAssets.push(asset);
+          }
+        } else if (asset.url.startsWith('/videos/')) {
+          // Local file
+          const filePath = path.join(process.cwd(), asset.url.substring(1)); // Remove leading slash
+          try {
+            await fs.access(filePath);
+            auditResults.localFiles.push({
+              ...asset,
+              filePath,
+              exists: true
+            });
+            auditResults.healthyAssets.push(asset);
+          } catch {
+            auditResults.missingFiles.push({
+              ...asset,
+              filePath,
+              issue: 'Local file missing'
+            });
+          }
+        } else {
+          auditResults.missingFiles.push({
+            ...asset,
+            issue: 'Invalid URL format'
+          });
+        }
+      }
+
+      console.log('📊 Video Storage Audit Results:');
+      console.log(`   - Total video assets: ${auditResults.totalAssets}`);
+      console.log(`   - External URLs (expire risk): ${auditResults.externalUrls.length}`);
+      console.log(`   - Local files (healthy): ${auditResults.localFiles.length}`);
+      console.log(`   - Missing files: ${auditResults.missingFiles.length}`);
+      console.log(`   - Healthy assets: ${auditResults.healthyAssets.length}`);
+
+      res.json(auditResults);
+    } catch (error) {
+      console.error('Video audit error:', error);
+      res.status(500).json({ message: "Failed to audit video storage" });
+    }
+  });
+
+  // Fix expired video URLs by regenerating or removing assets
+  app.post("/api/admin/fix-expired-videos", authenticateToken, requireSuperAdmin, async (req, res) => {
+    try {
+      console.log('🔒 Superadmin fixing expired video URLs');
+      const { assetIds, action } = req.body; // action: 'regenerate' or 'remove'
+      
+      if (!assetIds || !Array.isArray(assetIds)) {
+        return res.status(400).json({ message: "Asset IDs array required" });
+      }
+
+      const results = {
+        processed: 0,
+        regenerated: 0,
+        removed: 0,
+        errors: [] as string[]
+      };
+
+      for (const assetId of assetIds) {
+        try {
+          if (action === 'remove') {
+            // Remove the asset record
+            await db.delete(assets).where(eq(assets.id, assetId));
+            results.removed++;
+            console.log(`🗑️ Removed asset ${assetId}`);
+          } else if (action === 'regenerate') {
+            // Reset campaign to draft status for regeneration
+            const asset = await db.select().from(assets).where(eq(assets.id, assetId)).limit(1);
+            if (asset.length > 0) {
+              await db.update(campaigns)
+                .set({ status: 'draft' })
+                .where(eq(campaigns.id, asset[0].campaignId));
+              
+              // Remove the old asset
+              await db.delete(assets).where(eq(assets.id, assetId));
+              results.regenerated++;
+              console.log(`🔄 Reset campaign ${asset[0].campaignId} for regeneration`);
+            }
+          }
+          results.processed++;
+        } catch (error) {
+          console.error(`Failed to process asset ${assetId}:`, error);
+          results.errors.push(`Asset ${assetId}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+
+      console.log('✅ Video fix completed:', results);
+      res.json(results);
+    } catch (error) {
+      console.error('Video fix error:', error);
+      res.status(500).json({ message: "Failed to fix expired videos" });
+    }
+  });
+
   // Brief Template System routes for intelligent prompt suggestions
   app.get("/api/brief-templates/recommendations", authenticateToken, async (req, res) => {
     try {
