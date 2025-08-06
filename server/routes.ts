@@ -230,6 +230,73 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Regenerate expired image for specific campaign (protected)
+  app.post("/api/campaigns/:id/regenerate-image", authenticateToken, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      
+      // Validate campaign ID
+      if (isNaN(id) || id <= 0) {
+        console.error('❌ Invalid campaign ID for image regeneration:', req.params.id);
+        return res.status(400).json({ message: "Invalid campaign ID" });
+      }
+      
+      const campaign = await storage.getCampaign(id, req.user!.id);
+      if (!campaign) {
+        return res.status(404).json({ message: "Campaign not found" });
+      }
+
+      console.log(`🖼️ Regenerating image for campaign: ${campaign.name}`);
+      
+      // Import AI service
+      const { aiService } = await import("./services/ai-service");
+      
+      // Generate new image using our optimized hierarchy (Replicate SDXL primary)
+      const imagePrompt = `Professional advertising image for ${campaign.name}: ${campaign.brief}`;
+      const imageUrls = await aiService.generateAdImages(imagePrompt, 'clean modern advertising style');
+      
+      if (imageUrls.length > 0) {
+        // Find and update existing image asset
+        const assets = await storage.getAssets(id);
+        const imageAsset = assets.find(asset => asset.type === 'image');
+        
+        if (imageAsset) {
+          await storage.updateAsset(imageAsset.id, {
+            url: imageUrls[0],
+            provider: 'replicate-sdxl',
+            metadata: { 
+              generatedAt: new Date().toISOString(),
+              regenerated: true,
+              reason: 'Fixed expired external image URL'
+            }
+          });
+          
+          // Update campaign content with new image
+          if (campaign.generatedContent) {
+            const content = campaign.generatedContent as any;
+            if (content.imageAssets) {
+              content.imageAssets[0] = imageUrls[0];
+              await storage.updateCampaign(id, { generatedContent: content }, req.user!.id);
+            }
+          }
+          
+          console.log('✅ Image regenerated successfully:', imageUrls[0]);
+          res.json({ 
+            message: "Image regenerated successfully",
+            newImageUrl: imageUrls[0]
+          });
+        } else {
+          res.status(404).json({ message: "No image asset found for this campaign" });
+        }
+      } else {
+        res.status(500).json({ message: "Failed to generate new image" });
+      }
+    } catch (error) {
+      console.error('Image regeneration error:', error);
+      res.status(500).json({ message: "Failed to regenerate image" });
+    }
+  });
+
   // Generate AI content for campaign (protected)
   app.post("/api/campaigns/:id/generate", authenticateToken, async (req, res) => {
     try {
