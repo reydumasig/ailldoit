@@ -1,0 +1,115 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Ailldoit Brand Colors */
+  --ailldoit-black: #121212;
+  --ailldoit-accent: #FF6B00;
+  --ailldoit-neutral: #F4F4F4;
+  --ailldoit-light: #FAFAFA;
+  --ailldoit-muted: #6D6D6D;
+  --ailldoit-error: #FF4D4D;
+  
+  /* Shadcn/UI Color Mapping */
+  --background: hsl(0, 0%, 100%);
+  --foreground: #121212;
+  --muted: #F4F4F4;
+  --muted-foreground: #6D6D6D;
+  --popover: hsl(0, 0%, 100%);
+  --popover-foreground: #121212;
+  --card: hsl(0, 0%, 100%);
+  --card-foreground: #121212;
+  --border: hsl(214, 32%, 91%);
+  --input: #F4F4F4;
+  --primary: #FF6B00;
+  --primary-foreground: #FAFAFA;
+  --secondary: #F4F4F4;
+  --secondary-foreground: #121212;
+  --accent: #FF6B00;
+  --accent-foreground: #FAFAFA;
+  --destructive: #FF4D4D;
+  --destructive-foreground: #FAFAFA;
+  --ring: #FF6B00;
+  --success: hsl(142, 76%, 36%);
+  --warning: hsl(38, 92%, 50%);
+  --radius: 0.75rem;
+}
+
+/* Utility classes */
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.dark {
+  --background: hsl(222, 84%, 5%);
+  --foreground: hsl(210, 40%, 98%);
+  --muted: hsl(217, 32%, 17%);
+  --muted-foreground: hsl(215, 20%, 65%);
+  --popover: hsl(222, 84%, 5%);
+  --popover-foreground: hsl(210, 40%, 98%);
+  --card: hsl(222, 84%, 5%);
+  --card-foreground: hsl(210, 40%, 98%);
+  --border: hsl(217, 32%, 17%);
+  --input: hsl(217, 32%, 17%);
+  --primary: hsl(262, 83%, 66%);
+  --primary-foreground: hsl(210, 40%, 98%);
+  --secondary: hsl(217, 32%, 17%);
+  --secondary-foreground: hsl(210, 40%, 98%);
+  --accent: hsl(217, 32%, 17%);
+  --accent-foreground: hsl(210, 40%, 98%);
+  --destructive: hsl(0, 62%, 30%);
+  --destructive-foreground: hsl(210, 40%, 98%);
+  --ring: hsl(212, 12%, 84%);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply font-sans antialiased;
+    background-color: var(--ailldoit-light);
+    color: var(--ailldoit-black);
+  }
+}
+
+@layer utilities {
+  /* Ailldoit Brand Colors */
+  .text-ailldoit-black { color: var(--ailldoit-black); }
+  .text-ailldoit-accent { color: var(--ailldoit-accent); }
+  .text-ailldoit-neutral { color: var(--ailldoit-neutral); }
+  .text-ailldoit-light { color: var(--ailldoit-light); }
+  .text-ailldoit-muted { color: var(--ailldoit-muted); }
+  .text-ailldoit-error { color: var(--ailldoit-error); }
+  
+  .bg-ailldoit-black { background-color: var(--ailldoit-black); }
+  .bg-ailldoit-accent { background-color: var(--ailldoit-accent); }
+  .bg-ailldoit-neutral { background-color: var(--ailldoit-neutral); }
+  .bg-ailldoit-light { background-color: var(--ailldoit-light); }
+  .bg-ailldoit-muted { background-color: var(--ailldoit-muted); }
+  .bg-ailldoit-error { background-color: var(--ailldoit-error); }
+  
+  .border-ailldoit-black { border-color: var(--ailldoit-black); }
+  .border-ailldoit-accent { border-color: var(--ailldoit-accent); }
+  .border-ailldoit-neutral { border-color: var(--ailldoit-neutral); }
+  .border-ailldoit-light { border-color: var(--ailldoit-light); }
+  .border-ailldoit-muted { border-color: var(--ailldoit-muted); }
+  .border-ailldoit-error { border-color: var(--ailldoit-error); }
+  
+  /* Hover states */
+  .hover\:bg-ailldoit-accent\/90:hover { background-color: color-mix(in srgb, var(--ailldoit-accent) 90%, transparent); }
+  .hover\:bg-ailldoit-accent\/80:hover { background-color: color-mix(in srgb, var(--ailldoit-accent) 80%, transparent); }
+  
+  /* Legacy support for existing code */
+  .text-success { color: hsl(142, 76%, 36%); }
+  .text-warning { color: hsl(38, 92%, 50%); }
+  .bg-success { background-color: hsl(142, 76%, 36%); }
+  .bg-warning { background-color: hsl(38, 92%, 50%); }
+  .border-success { border-color: hsl(142, 76%, 36%); }
+  .border-warning { border-color: hsl(38, 92%, 50%); }
+}

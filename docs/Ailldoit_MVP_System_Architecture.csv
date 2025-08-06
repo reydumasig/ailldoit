@@ -1,0 +1,12 @@
+Component,Technology/Tool,Purpose
+Frontend (Web App),React.js (Webflow export compatible),"User interface for submitting briefs, reviewing content"
+Backend Server,FastAPI or Node.js (for scalability with AI pipelines),"Handles API calls, business logic, and ML orchestration"
+User Authentication,Firebase Auth or Auth0,"Handles user login, roles, and security"
+Ad Brief Parser (AI),OpenAI GPT-4 Turbo / Gemini 1.5,Takes user brief and turns into structured input
+Image Generation Engine,Replicate (for SDXL-based image models),Generates static ad image creatives from prompts
+Video Generation Engine,Gemini Veo 3 (future) + Pika/RunwayML (fallback),Generates short-form ad videos (primary & fallback)
+Content Storage,Firebase Storage / AWS S3,Stores generated media assets securely
+Creative Variant Testing Module,Custom AB Testing logic + Firebase/Firestore logs,Compares different ad creatives and reports best
+Publishing Integrations,"Meta API, TikTok Ads API, YouTube Data API",Allows publishing to ad platforms
+Database,Firebase Firestore or PostgreSQL (via Supabase),"Stores user data, project metadata, and ad outputs"
+Admin Dashboard,Retool or simple React-based internal tool,"Manage users, content queue, and analytics"

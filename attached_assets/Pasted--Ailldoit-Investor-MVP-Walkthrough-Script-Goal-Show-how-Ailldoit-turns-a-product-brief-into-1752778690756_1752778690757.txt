@@ -1,0 +1,72 @@
+🎥 Ailldoit – Investor MVP Walkthrough Script
+
+🎯 Goal: Show how Ailldoit turns a product brief into viral, localized social ads in minutes
+
+🕒 Ideal Length: 60–90 seconds
+📂 Use Case: Pitch follow-ups, demo day, investor updates, or application submissions
+
+⸻
+
+🟩 Screen 1: Campaign Dashboard
+
+Script (Say this):
+“Welcome to Ailldoit. This is the campaign dashboard where users see all of their generated ad campaigns in one place — quick overview, status, and performance at a glance.”
+
+What to show/click:
+	•	Hover or click a campaign tile (show ‘status: ready to publish’ or similar)
+
+⸻
+
+🟩 Screen 2: New Campaign – Brief Submission
+
+Script:
+“Let’s start a new campaign. All the user needs to do is input a short product brief — who the ad is for, what they’re selling, and the goal.”
+
+What to show/click:
+	•	Fill sample brief: “Launching a mango-scented soap for teens in Manila”
+	•	Select platform: TikTok
+	•	Select language: Tagalog
+	•	Hit ‘Generate’
+
+⸻
+
+🟩 Screen 3: AI Ad Generator Preview
+
+Script:
+“In seconds, Ailldoit generates a complete ad kit: captions, image mockups, even video scripts or clips. All tailored for the selected platform, in the local language.”
+
+What to show/click:
+	•	Scroll through generated assets (text, image, video block)
+	•	Mention: “This would’ve taken a team hours — now it’s done instantly.”
+
+⸻
+
+🟩 Screen 4: Variant Testing
+
+Script:
+“The system also creates A/B creative variants automatically. This lets brands test multiple hooks without lifting a finger.”
+
+What to show/click:
+	•	Switch between Variant A and B (show different hook/headline)
+	•	Option to select ‘Use both for testing’
+
+⸻
+
+🟩 Screen 5: One-Click Publishing
+
+Script:
+“Once approved, you can push your ad live directly to TikTok, Instagram, or Facebook — no switching platforms or downloading files.”
+
+What to show/click:
+	•	Click “Publish” button
+	•	Mention scheduling/publish now toggle
+
+⸻
+
+🟩 Closing (Back to Dashboard or Performance Tab)
+
+Script:
+“Ailldoit gives every business the creative power of an agency — without the cost, time, or complexity. It’s fast, localized, and built for the mobile-first world.”
+
+Optional final call to action:
+“We’re launching in Southeast Asia first, where 600M+ mobile-first users and $4.4B in social ad spend are driving the demand. We’d love to tell you more.”
