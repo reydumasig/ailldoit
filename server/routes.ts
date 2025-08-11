@@ -968,10 +968,11 @@ ${campaign.brief}`;
             auditResults.healthyAssets.push(asset);
           }
         } else if (asset.url.startsWith('/videos/')) {
-          // Local file
+          // Local file - check if it actually exists
           const filePath = path.join(process.cwd(), asset.url.substring(1)); // Remove leading slash
           try {
             await fs.access(filePath);
+            // File exists - it's healthy
             auditResults.localFiles.push({
               ...asset,
               filePath,
@@ -979,10 +980,12 @@ ${campaign.brief}`;
             });
             auditResults.healthyAssets.push(asset);
           } catch {
+            // File missing - this causes "Video Expired" errors
             auditResults.missingFiles.push({
               ...asset,
               filePath,
-              issue: 'Local file missing'
+              issue: 'Local file missing - causes "Video Expired" error',
+              severity: 'CRITICAL'
             });
           }
         } else {

@@ -21,6 +21,15 @@ Ailldoit is a web application designed to generate viral, localized social media
 - **Local Storage**: Videos stored locally to prevent expiration issues
 
 ## Recent Changes (August 2025)
+### Critical Video Storage Fix (August 11, 2025)
+- **Issue Discovered**: Campaigns 31 and 33 showing "Video Expired" despite database showing local URLs
+- **Root Cause**: Video download process silently failing but database still recording local paths
+- **Missing Files**: `veo3_1754557232534.mp4` and `veo3_1754913938264.mp4` were not actually saved to disk
+- **Immediate Fix**: Removed broken asset records and reset campaigns 31, 33 to draft status for regeneration
+- **Enhanced Logging**: Added detailed error logging for video download failures to prevent silent failures
+- **Audit System Enhanced**: Updated audit endpoint to detect missing local files that cause "Video Expired" errors
+- **Result**: Fixed immediate user-facing issue and prevented future silent failures
+
 ### Complete Video Storage System Audit & Fix (August 6, 2025)
 - **Final Comprehensive Audit**: Identified and resolved all remaining "Video Expired" issues across entire platform
 - **Issues Found & Fixed**:

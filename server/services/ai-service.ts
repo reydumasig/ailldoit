@@ -485,10 +485,20 @@ export class AIService {
           console.log('🎬 Local video URL:', localVideoUrl);
           return [localVideoUrl];
         } catch (downloadError) {
-          console.warn('Download failed, using direct URL:', downloadError);
+          console.error('❌ Critical: Video download failed for Veo 2:', downloadError);
+          console.error('📁 Attempted to save to:', localPath);
+          console.error('🎬 Original video URI:', video.video?.uri);
+          
+          // Log detailed error for debugging
+          if (downloadError instanceof Error) {
+            console.error('💥 Error details:', downloadError.message);
+            console.error('📜 Stack trace:', downloadError.stack);
+          }
+          
           // Fallback to external URL if download fails
           const videoUrl = video.video.uri;
-          console.log('🎬 Fallback video URL:', videoUrl);
+          console.warn('🚨 CRITICAL: Using temporary URL that will expire soon:', videoUrl);
+          console.warn('🚨 This will cause "Video Expired" errors for users!');
           return videoUrl ? [videoUrl] : [];
         }
       } else {
@@ -574,10 +584,20 @@ export class AIService {
           
           return [videoUrl];
         } catch (downloadError) {
-          console.warn('⚠️ Download failed, video will expire quickly:', downloadError);
+          console.error('❌ Critical: Video download failed for Veo 3:', downloadError);
+          console.error('📁 Attempted to save to:', fullLocalPath);
+          console.error('🎬 Original video URI:', video.video?.uri);
+          
+          // Log detailed error for debugging
+          if (downloadError instanceof Error) {
+            console.error('💥 Error details:', downloadError.message);
+            console.error('📜 Stack trace:', downloadError.stack);
+          }
+          
           // Fallback to temporary URL with warning
           const videoUrl = video.video.uri || '';
-          console.warn('🚨 Using temporary URL that will expire soon:', videoUrl);
+          console.warn('🚨 CRITICAL: Using temporary URL that will expire soon:', videoUrl);
+          console.warn('🚨 This will cause "Video Expired" errors for users!');
           return videoUrl ? [videoUrl] : [];
         }
         
