@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import Replicate from 'replicate';
 import { GoogleGenAI } from '@google/genai';
+import { videoHostingService } from './video-hosting-service';
 import { GeneratedContent } from '@shared/schema';
 import { learningService } from './learning-service';
 
@@ -403,12 +404,29 @@ export class AIService {
 
       console.log('Processed video URLs:', videoUrls);
       console.log(`✅ Video generated successfully!`);
-      console.log('🎬 Generated video URLs:');
-      videoUrls.forEach((url, index) => {
+      
+      // Upload videos to permanent hosting (Firebase Storage preferred)
+      const hostedUrls = [];
+      for (let i = 0; i < videoUrls.length; i++) {
+        const url = videoUrls[i];
+        try {
+          const fileName = `replicate_${Date.now()}_${i}.mp4`;
+          const hostedUrl = await videoHostingService.uploadVideo(url, fileName);
+          console.log(`✅ Video ${i + 1} hosted successfully: ${hostedUrl}`);
+          hostedUrls.push(hostedUrl);
+        } catch (error) {
+          console.error(`❌ Failed to host video ${i + 1}:`, error);
+          console.warn('Using original URL as fallback');
+          hostedUrls.push(url);
+        }
+      }
+
+      console.log('🔗 Final video URLs (permanently hosted):');
+      hostedUrls.forEach((url, index) => {
         console.log(`   ${index + 1}. ${url}`);
       });
 
-      return videoUrls;
+      return hostedUrls;
     } catch (error) {
       console.error('Replicate video generation failed:', error);
       throw new Error(`Video generation failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -458,44 +476,32 @@ export class AIService {
           throw new Error('No video file in response');
         }
         
-        // Download and store the video file locally
-        console.log('Downloading Veo 2 generated video...');
+        // Host video permanently (Firebase Storage preferred)
+        console.log('🎬 Hosting Veo 2 video permanently...');
         
         try {
-          const fs = await import('fs');
-          const path = await import('path');
           const fileName = `veo2_${Date.now()}.mp4`;
-          const videosDir = path.join(process.cwd(), 'videos');
-          const localPath = path.join(videosDir, fileName);
+          const videoUri = video.video.uri;
           
-          // Ensure videos directory exists
-          if (!fs.existsSync(videosDir)) {
-            fs.mkdirSync(videosDir, { recursive: true });
+          if (!videoUri) {
+            throw new Error('No video URI available for hosting');
           }
           
-          // Download the video file to local storage
-          await gemini.files.download({
-            file: video.video,
-            downloadPath: localPath,
-          });
-          
-          // Return local video URL instead of external
-          const localVideoUrl = `/videos/${fileName}`;
-          console.log('✅ Veo 2 video generated and stored locally!');
-          console.log('🎬 Local video URL:', localVideoUrl);
-          return [localVideoUrl];
-        } catch (downloadError) {
-          console.error('❌ Critical: Video download failed for Veo 2:', downloadError);
-          console.error('📁 Attempted to save to:', localPath);
+          const hostedUrl = await videoHostingService.uploadVideo(videoUri, fileName);
+          console.log('✅ Veo 2 video hosted successfully!');
+          console.log('🔗 Hosted URL:', hostedUrl);
+          return [hostedUrl];
+        } catch (hostingError) {
+          console.error('❌ Critical: Video hosting failed for Veo 2:', hostingError);
           console.error('🎬 Original video URI:', video.video?.uri);
           
           // Log detailed error for debugging
-          if (downloadError instanceof Error) {
-            console.error('💥 Error details:', downloadError.message);
-            console.error('📜 Stack trace:', downloadError.stack);
+          if (hostingError instanceof Error) {
+            console.error('💥 Error details:', hostingError.message);
+            console.error('📜 Stack trace:', hostingError.stack);
           }
           
-          // Fallback to external URL if download fails
+          // Fallback to external URL if hosting fails
           const videoUrl = video.video.uri;
           console.warn('🚨 CRITICAL: Using temporary URL that will expire soon:', videoUrl);
           console.warn('🚨 This will cause "Video Expired" errors for users!');
@@ -554,44 +560,30 @@ export class AIService {
           throw new Error('No video file in response');
         }
         
-        // Download the video file to local storage
-        console.log('Downloading Veo 3 generated video...');
+        // Host video permanently (Firebase Storage preferred)
+        console.log('🎬 Hosting Veo 3 video permanently...');
         
         const fileName = `veo3_${Date.now()}.mp4`;
-        const localPath = `./videos/${fileName}`;
         
         try {
-          // Ensure videos directory exists
-          const fs = await import('fs');
-          const path = await import('path');
-          const videosDir = path.join(process.cwd(), 'videos');
+          const videoUri = video.video.uri;
           
-          if (!fs.existsSync(videosDir)) {
-            fs.mkdirSync(videosDir, { recursive: true });
-            console.log('📁 Created videos directory');
+          if (!videoUri) {
+            throw new Error('No video URI available for hosting');
           }
           
-          // Download the video file locally using proper path
-          const fullLocalPath = path.join(videosDir, fileName);
-          await gemini.files.download({
-            file: video.video,
-            downloadPath: fullLocalPath,
-          });
-          
-          // Return local file path instead of temporary Gemini URL
-          const videoUrl = `/videos/${fileName}`;
-          console.log('✅ Video downloaded and stored locally:', videoUrl);
-          
-          return [videoUrl];
-        } catch (downloadError) {
-          console.error('❌ Critical: Video download failed for Veo 3:', downloadError);
-          console.error('📁 Attempted to save to:', fullLocalPath);
+          const hostedUrl = await videoHostingService.uploadVideo(videoUri, fileName);
+          console.log('✅ Veo 3 video hosted successfully!');
+          console.log('🔗 Hosted URL:', hostedUrl);
+          return [hostedUrl];
+        } catch (hostingError) {
+          console.error('❌ Critical: Video hosting failed for Veo 3:', hostingError);
           console.error('🎬 Original video URI:', video.video?.uri);
           
           // Log detailed error for debugging
-          if (downloadError instanceof Error) {
-            console.error('💥 Error details:', downloadError.message);
-            console.error('📜 Stack trace:', downloadError.stack);
+          if (hostingError instanceof Error) {
+            console.error('💥 Error details:', hostingError.message);
+            console.error('📜 Stack trace:', hostingError.stack);
           }
           
           // Fallback to temporary URL with warning

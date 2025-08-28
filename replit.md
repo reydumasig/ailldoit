@@ -21,6 +21,21 @@ Ailldoit is a web application designed to generate viral, localized social media
 - **Local Storage**: Videos stored locally to prevent expiration issues
 
 ## Recent Changes (August 2025)
+### Firebase Storage Video Hosting Implementation (August 28, 2025)
+- **Major Migration**: Migrated all video hosting from local storage to Firebase Storage for permanent, reliable hosting
+- **New Services Created**:
+  - `FirebaseStorageService`: Handles direct Firebase Storage uploads with permanent public URLs  
+  - `VideoHostingService`: Unified video hosting service with Firebase Storage priority and local fallback
+- **AI Service Updated**: All video generation methods (Gemini Veo 2/3, Replicate) now use Firebase Storage by default
+- **Benefits Achieved**:
+  - **Zero Expiration**: Videos hosted permanently with far-future expiration dates (2125)
+  - **Scalable Storage**: Firebase Storage handles any number of video assets
+  - **Global CDN**: Fast video delivery worldwide via Firebase's CDN
+  - **Reliable URLs**: No more "Video Expired" errors from missing local files
+- **Fallback System**: Local storage still available if Firebase Storage is not configured
+- **Migration Ready**: Created migration script to move existing local videos to Firebase Storage
+- **Result**: Permanent solution to video expiration issues with enterprise-grade hosting
+
 ### Critical Video Storage Fix (August 11, 2025)
 - **Issue Discovered**: Campaigns 31 and 33 showing "Video Expired" despite database showing local URLs
 - **Root Cause**: Video download process silently failing but database still recording local paths
