@@ -12,6 +12,8 @@ import { PublishingService } from "./services/publishing-service";
 import { StorageService } from "./services/storage-service";
 import { learningService } from "./services/learning-service";
 import { briefTemplateService } from "./services/brief-template-service";
+import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
+import { ObjectPermission } from "./objectAcl";
 import { z } from "zod";
 import crypto from 'crypto';
 
@@ -150,6 +152,86 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Beta signup error:', error);
       res.status(500).json({ message: 'Failed to create Beta user' });
+    }
+  });
+
+  // Object Storage routes (protected file uploading)
+  app.get("/objects/:objectPath(*)", authenticateToken, async (req, res) => {
+    try {
+      // Gets the authenticated user id.
+      const userId = req.user?.id;
+      const objectStorageService = new ObjectStorageService();
+      
+      const objectFile = await objectStorageService.getObjectEntityFile(req.path);
+      const canAccess = await objectStorageService.canAccessObjectEntity({
+        objectFile,
+        userId: userId,
+        requestedPermission: ObjectPermission.READ,
+      });
+      
+      if (!canAccess) {
+        return res.sendStatus(401);
+      }
+      
+      objectStorageService.downloadObject(objectFile, res);
+    } catch (error) {
+      console.error("Error checking object access:", error);
+      if (error instanceof ObjectNotFoundError) {
+        return res.sendStatus(404);
+      }
+      return res.sendStatus(500);
+    }
+  });
+
+  // The endpoint for getting the upload URL for an object entity.
+  app.post("/api/objects/upload", authenticateToken, async (req, res) => {
+    try {
+      const objectStorageService = new ObjectStorageService();
+      const uploadURL = await objectStorageService.getObjectEntityUploadURL();
+      res.json({ uploadURL });
+    } catch (error) {
+      console.error("Error getting upload URL:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Reference image upload endpoint for campaigns
+  app.put("/api/campaigns/:id/reference-image", authenticateToken, async (req, res) => {
+    try {
+      if (!req.body.referenceImageURL) {
+        return res.status(400).json({ error: "referenceImageURL is required" });
+      }
+
+      const campaignId = parseInt(req.params.id);
+      const userId = req.user!.id;
+
+      // Verify campaign ownership
+      const campaign = await storage.getCampaign(campaignId);
+      if (!campaign || campaign.userId !== userId) {
+        return res.status(404).json({ error: "Campaign not found" });
+      }
+
+      const objectStorageService = new ObjectStorageService();
+      const objectPath = await objectStorageService.trySetObjectEntityAclPolicy(
+        req.body.referenceImageURL,
+        {
+          owner: userId,
+          visibility: "public", // Reference images can be public for AI services
+        },
+      );
+
+      // Update campaign with reference image URL
+      const updatedCampaign = await storage.updateCampaign(campaignId, {
+        referenceImageUrl: objectPath,
+      });
+
+      res.status(200).json({
+        objectPath: objectPath,
+        campaign: updatedCampaign
+      });
+    } catch (error) {
+      console.error("Error setting reference image:", error);
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
