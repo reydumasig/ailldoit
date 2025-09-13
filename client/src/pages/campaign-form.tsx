@@ -13,10 +13,12 @@ import { insertCampaignSchema } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
-import { ArrowLeft, Wand2, Video, Image as ImageIcon, Lightbulb, Sparkles } from "lucide-react";
+import { ArrowLeft, Wand2, Video, Image as ImageIcon, Lightbulb, Sparkles, Upload, X } from "lucide-react";
 import BriefTemplateSelector from "@/components/BriefTemplateSelector";
 import PromptSelectorTool from "@/components/PromptSelectorTool";
 import { LinkedPromptSuggestions } from "@/components/LinkedPromptSuggestions";
+import { ObjectUploader } from "@/components/ObjectUploader";
+import type { UploadResult } from "@uppy/core";
 import { 
   SiTiktok, 
   SiInstagram, 
@@ -52,6 +54,8 @@ export default function CampaignForm() {
   const [selectedCampaignType, setSelectedCampaignType] = useState("video");
   const [showTemplateSelector, setShowTemplateSelector] = useState(false);
   const [showPromptSelector, setShowPromptSelector] = useState(false);
+  const [referenceImage, setReferenceImage] = useState<{ url: string; name: string } | null>(null);
+  const [uploadingReference, setUploadingReference] = useState(false);
 
   // Get edit campaign ID from URL params
   const urlParams = new URLSearchParams(window.location.search);
@@ -173,6 +177,72 @@ export default function CampaignForm() {
     toast({
       title: "Template Applied",
       description: "The selected template has been applied to your campaign.",
+    });
+  };
+
+  const handleGetUploadParameters = async () => {
+    const response = await apiRequest("POST", "/api/objects/upload");
+    const data = await response.json();
+    return {
+      method: "PUT" as const,
+      url: data.uploadURL,
+    };
+  };
+
+  const handleUploadComplete = async (result: UploadResult<Record<string, unknown>, Record<string, unknown>>) => {
+    if (result.successful && result.successful[0]) {
+      setUploadingReference(true);
+      const uploadedFile = result.successful[0];
+      const uploadURL = uploadedFile.uploadURL;
+      const fileName = uploadedFile.name;
+
+      try {
+        // If this is an edit, update the existing campaign with reference image
+        if (isEditing && editCampaignId) {
+          const response = await apiRequest("PUT", `/api/campaigns/${editCampaignId}/reference-image`, {
+            referenceImageURL: uploadURL,
+          });
+          const data = await response.json();
+          
+          setReferenceImage({
+            url: data.objectPath,
+            name: fileName,
+          });
+          
+          toast({
+            title: "Reference Image Uploaded",
+            description: "Your reference image has been uploaded and linked to this campaign.",
+          });
+        } else {
+          // For new campaigns, just store the reference for later when campaign is created
+          setReferenceImage({
+            url: uploadURL,
+            name: fileName,
+          });
+          
+          toast({
+            title: "Reference Image Ready",
+            description: "Your reference image will be linked when the campaign is created.",
+          });
+        }
+      } catch (error) {
+        console.error("Error setting reference image:", error);
+        toast({
+          title: "Upload Error",
+          description: "Failed to link reference image to campaign.",
+          variant: "destructive",
+        });
+      } finally {
+        setUploadingReference(false);
+      }
+    }
+  };
+
+  const removeReferenceImage = () => {
+    setReferenceImage(null);
+    toast({
+      title: "Reference Image Removed",
+      description: "The reference image has been removed from this campaign.",
     });
   };
 
@@ -468,6 +538,71 @@ export default function CampaignForm() {
                           })}
                         </div>
                       </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Reference Image Upload - Optional */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center">
+                        <Upload className="w-5 h-5 mr-2" />
+                        Reference Materials (Optional)
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-sm text-ailldoit-muted mb-4">
+                        Upload logos, Canva templates, or brand assets to guide AI content generation
+                      </p>
+                      
+                      {referenceImage ? (
+                        <div className="border-2 border-dashed border-ailldoit-accent/30 rounded-xl p-4 bg-ailldoit-accent/5">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-3">
+                              <div className="w-12 h-12 bg-ailldoit-accent/10 rounded-lg flex items-center justify-center">
+                                <ImageIcon className="w-6 h-6 text-ailldoit-accent" />
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium text-foreground" data-testid="text-reference-name">
+                                  {referenceImage.name}
+                                </p>
+                                <p className="text-xs text-ailldoit-muted">
+                                  Reference image uploaded
+                                </p>
+                              </div>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={removeReferenceImage}
+                              className="h-8 w-8 p-0 hover:bg-red-50 hover:text-red-600"
+                              data-testid="button-remove-reference"
+                            >
+                              <X className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <ObjectUploader
+                          maxNumberOfFiles={1}
+                          maxFileSize={10485760} // 10MB
+                          onGetUploadParameters={handleGetUploadParameters}
+                          onComplete={handleUploadComplete}
+                          buttonClassName="w-full border-2 border-dashed border-gray-300 hover:border-ailldoit-accent/50 bg-gray-50 hover:bg-ailldoit-accent/5 text-ailldoit-muted hover:text-ailldoit-accent transition-all"
+                        >
+                          <div className="flex flex-col items-center py-6">
+                            <Upload className="w-8 h-8 mb-2" />
+                            <span className="text-sm font-medium">Upload Reference Image</span>
+                            <span className="text-xs mt-1">PNG, JPG, PDF, SVG, EPS up to 10MB</span>
+                          </div>
+                        </ObjectUploader>
+                      )}
+                      
+                      {uploadingReference && (
+                        <div className="mt-3 flex items-center justify-center text-sm text-ailldoit-muted">
+                          <div className="w-4 h-4 border-2 border-ailldoit-accent border-t-transparent rounded-full animate-spin mr-2" />
+                          Processing reference image...
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
 
