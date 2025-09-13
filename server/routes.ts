@@ -90,6 +90,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Beta signup route - creates Beta users with 5000 credits
+  app.post('/api/auth/signup/beta', async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization;
+      const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+
+      if (!token) {
+        return res.status(401).json({ message: 'Access token required' });
+      }
+
+      // Verify Firebase ID token
+      const decodedToken = await admin.auth().verifyIdToken(token);
+      
+      console.log('🎯 Creating new Beta user:', decodedToken.email);
+      
+      // Create or update user with Beta tier and 5000 credits
+      const betaUser = await storage.upsertUser({
+        email: decodedToken.email!,
+        firebaseUid: decodedToken.uid,
+        firstName: decodedToken.name?.split(' ')[0],
+        lastName: decodedToken.name?.split(' ')[1],
+        profileImageUrl: decodedToken.picture,
+        subscriptionTier: 'beta',
+        creditsLimit: 5000,
+        creditsRemaining: 5000,
+        creditsUsed: 0,
+        subscriptionStartDate: new Date(),
+        subscriptionEndDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year from now
+        subscriptionStatus: 'active',
+      });
+
+      console.log('✅ Successfully created Beta user:', betaUser.email, 'with 5000 credits');
+      
+      // Track user session for performance monitoring
+      const { PerformanceMonitor } = await import("./services/performance-monitor");
+      PerformanceMonitor.trackUserSession(betaUser.id);
+      
+      res.json(betaUser);
+    } catch (error) {
+      console.error('Beta signup error:', error);
+      res.status(500).json({ message: 'Failed to create Beta user' });
+    }
+  });
+
   // Protected campaign routes (require authentication)
   app.get("/api/campaigns", authenticateToken, async (req, res) => {
     try {

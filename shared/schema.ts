@@ -28,7 +28,7 @@ export const users = pgTable("users", {
   lastLoginAt: timestamp("last_login_at"),
   // Admin and subscription fields
   role: text("role").default("user"), // 'user', 'admin', 'superadmin'
-  subscriptionTier: text("subscription_tier").default("free"), // 'free', 'starter', 'growth', 'enterprise'
+  subscriptionTier: text("subscription_tier").default("free"), // 'free', 'starter', 'growth', 'enterprise', 'beta'
   subscriptionStatus: text("subscription_status").default("active"), // 'active', 'inactive', 'cancelled', 'past_due'
   subscriptionStartDate: timestamp("subscription_start_date"),
   subscriptionEndDate: timestamp("subscription_end_date"),
