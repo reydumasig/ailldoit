@@ -53,6 +53,7 @@ export const campaigns = pgTable("campaigns", {
   status: text("status").notNull().default("draft"), // 'draft', 'generating', 'ready', 'published', 'active'
   brief: text("brief").notNull(),
   campaignType: text("campaign_type").notNull().default("video"), // 'video', 'image'
+  referenceImageUrl: text("reference_image_url"), // Optional reference image for AI generation
   generatedContent: json("generated_content"), // AI generated content with real URLs
   variants: json("variants"), // A/B test variants
   publishingSettings: json("publishing_settings"), // Platform-specific settings
