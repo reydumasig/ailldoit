@@ -80,6 +80,7 @@ export default function CampaignForm() {
       platform: "tiktok",
       campaignType: "video",
       status: "draft",
+      referenceImageUrl: "",
       generatedContent: null,
       variants: null,
       publishingSettings: null,
@@ -99,6 +100,7 @@ export default function CampaignForm() {
         platform: (existingCampaign as any).platform || "tiktok",
         campaignType: (existingCampaign as any).campaignType || "video",
         status: (existingCampaign as any).status || "draft",
+        referenceImageUrl: (existingCampaign as any).referenceImageUrl || "",
         // Don't load large fields that cause payload issues
         generatedContent: null,
         variants: null,
@@ -193,7 +195,7 @@ export default function CampaignForm() {
     if (result.successful && result.successful[0]) {
       setUploadingReference(true);
       const uploadedFile = result.successful[0];
-      const uploadURL = uploadedFile.uploadURL;
+      const uploadURL = uploadedFile.uploadURL as string;
       const fileName = uploadedFile.name;
 
       try {
@@ -214,11 +216,14 @@ export default function CampaignForm() {
             description: "Your reference image has been uploaded and linked to this campaign.",
           });
         } else {
-          // For new campaigns, just store the reference for later when campaign is created
+          // For new campaigns, store the reference and set form value
           setReferenceImage({
             url: uploadURL,
             name: fileName,
           });
+          
+          // Set the form value to include in campaign submission
+          form.setValue("referenceImageUrl", uploadURL);
           
           toast({
             title: "Reference Image Ready",
@@ -240,8 +245,9 @@ export default function CampaignForm() {
 
   const removeReferenceImage = () => {
     setReferenceImage(null);
+    form.setValue("referenceImageUrl", "");
     toast({
-      title: "Reference Image Removed",
+      title: "Reference Image Removed", 
       description: "The reference image has been removed from this campaign.",
     });
   };
@@ -260,6 +266,7 @@ export default function CampaignForm() {
       platform: selectedPlatform,
       campaignType: selectedCampaignType,
       status: data.status || "draft",
+      referenceImageUrl: data.referenceImageUrl || null,
       // Don't send heavy data like generatedContent, variants, etc. in updates
     };
     

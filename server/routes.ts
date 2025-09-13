@@ -518,7 +518,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           campaign.brief, 
           campaign.platform, 
           campaign.language,
-          req.user!.id
+          req.user!.id,
+          campaign.referenceImageUrl || undefined
         );
         
         // Track generation completion
@@ -540,7 +541,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
               metadata: { type: 'campaign_image' }
             });
 
-            const images = await aiService.generateAdImages(campaign.brief);
+            const images = await aiService.generateAdImages(
+              campaign.brief, 
+              "modern", 
+              campaign.referenceImageUrl || undefined
+            );
             generatedContent.imageAssets = images || [];
             
             // Store image assets

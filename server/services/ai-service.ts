@@ -20,7 +20,7 @@ const gemini = new GoogleGenAI({
 
 export class AIService {
   // Generate ad content using OpenAI GPT-4 with learning optimization
-  async generateAdContent(brief: string, platform: string, language: string, userId?: string): Promise<GeneratedContent> {
+  async generateAdContent(brief: string, platform: string, language: string, userId?: string, referenceImageUrl?: string): Promise<GeneratedContent> {
     try {
       // Get optimized prompts based on learning patterns
       const { systemPrompt, userPrompt } = await learningService.getOptimizedPrompt(
@@ -29,6 +29,11 @@ export class AIService {
         'content', 
         brief
       );
+
+      // Enhance prompt with reference image context if provided
+      const enhancedUserPrompt = referenceImageUrl 
+        ? `${userPrompt}\n\nREFERENCE MATERIALS: The user has provided a reference image/material that should guide the visual style and branding. Consider this reference when suggesting visual concepts, color schemes, styling, and overall aesthetic direction for the campaign. The reference material should influence how you describe visual elements in your response.`
+        : userPrompt;
       
       console.log(`🧠 Using AI learning-enhanced prompts for ${platform}/${language}`);
       
@@ -41,7 +46,7 @@ export class AIService {
           },
           {
             role: "user",
-            content: userPrompt
+            content: enhancedUserPrompt
           }
         ],
         temperature: 0.8,
@@ -93,7 +98,7 @@ export class AIService {
   }
 
   // Generate images using Gemini's image generation
-  async generateAdImagesGemini(description: string, style: string = "modern"): Promise<string[]> {
+  async generateAdImagesGemini(description: string, style: string = "modern", referenceImageUrl?: string): Promise<string[]> {
     if (!process.env.GEMINI_API_KEY) {
       throw new Error('GEMINI_API_KEY is required for image generation');
     }
@@ -103,7 +108,11 @@ export class AIService {
       console.log(`🎯 Style: ${style}`);
       console.log(`🔑 Using API key: ${process.env.GEMINI_API_KEY?.substring(0, 20)}...`);
       
-      const enhancedPrompt = `${description}, ${style} style, high quality, professional advertising photo, clean background, well-lit, commercial photography, product showcase, social media ready, avoid blurry or low quality images, no text or watermarks`;
+      let enhancedPrompt = `${description}, ${style} style, high quality, professional advertising photo, clean background, well-lit, commercial photography, product showcase, social media ready, avoid blurry or low quality images, no text or watermarks`;
+      
+      if (referenceImageUrl) {
+        enhancedPrompt += `. Take visual inspiration from the provided reference material for color scheme, style, and branding elements.`;
+      }
       
       // Try multiple model names in order of preference
       const modelNames = [
@@ -188,13 +197,13 @@ export class AIService {
   }
 
   // Generate images using Replicate SDXL (fallback)
-  async generateAdImagesReplicate(description: string, style: string = "modern"): Promise<string[]> {
+  async generateAdImagesReplicate(description: string, style: string = "modern", referenceImageUrl?: string): Promise<string[]> {
     try {
       const output = await replicate.run(
         "stability-ai/sdxl:39ed52f2a78e934b3ba6e2a89f5b1c712de7dfea535525255b1aa35c5565e08b",
         {
           input: {
-            prompt: `${description}, ${style} style, high quality, professional advertising photo, clean background`,
+            prompt: `${description}, ${style} style, high quality, professional advertising photo, clean background${referenceImageUrl ? ', taking visual inspiration from provided reference material for styling and branding' : ''}`,
             negative_prompt: "blurry, low quality, distorted, text, watermark",
             width: 1024,
             height: 1024,
@@ -241,7 +250,7 @@ export class AIService {
   }
 
   // Generate images using OpenAI DALL-E 3
-  async generateAdImagesOpenAI(description: string, style: string = "modern"): Promise<string[]> {
+  async generateAdImagesOpenAI(description: string, style: string = "modern", referenceImageUrl?: string): Promise<string[]> {
     if (!process.env.OPENAI_API_KEY) {
       throw new Error('OPENAI_API_KEY is required for image generation');
     }
@@ -250,7 +259,11 @@ export class AIService {
       console.log(`🎨 Generating images with OpenAI DALL-E 3: "${description}"`);
       console.log(`🎯 Style: ${style}`);
       
-      const enhancedPrompt = `${description}, ${style} style, high quality, professional advertising photo, clean background, well-lit, commercial photography, product showcase, social media ready, 4K resolution, no text or watermarks`;
+      let enhancedPrompt = `${description}, ${style} style, high quality, professional advertising photo, clean background, well-lit, commercial photography, product showcase, social media ready, 4K resolution, no text or watermarks`;
+      
+      if (referenceImageUrl) {
+        enhancedPrompt += `. Take visual inspiration from the provided reference material for color scheme, style, and branding elements.`;
+      }
       
       const response = await openai.images.generate({
         model: "dall-e-3",
@@ -273,7 +286,7 @@ export class AIService {
   }
 
   // Main image generation method with proper provider hierarchy: Replicate → Gemini → OpenAI DALL-E
-  async generateAdImages(description: string, style: string = "modern"): Promise<string[]> {
+  async generateAdImages(description: string, style: string = "modern", referenceImageUrl?: string): Promise<string[]> {
     console.log(`🎨 Starting image generation: "${description}"`);
     console.log(`📝 Provider hierarchy: Replicate SDXL → Gemini Imagen 3 → OpenAI DALL-E 3`);
     
@@ -282,7 +295,7 @@ export class AIService {
     // 1st Priority: Replicate SDXL (Primary - most reliable for advertising images)
     try {
       console.log('🎯 Trying Replicate SDXL (Primary)...');
-      return await this.generateAdImagesReplicate(description, style);
+      return await this.generateAdImagesReplicate(description, style, referenceImageUrl);
     } catch (error: any) {
       replicateError = error;
       console.warn('⚠️ Replicate failed, trying Gemini Imagen 3:', error.message);
@@ -291,7 +304,7 @@ export class AIService {
     // 2nd Priority: Gemini Imagen 3 (Secondary - Google's latest image model)
     try {
       console.log('🎯 Trying Gemini Imagen 3 (Secondary)...');
-      return await this.generateAdImagesGemini(description, style);
+      return await this.generateAdImagesGemini(description, style, referenceImageUrl);
     } catch (error: any) {
       geminiError = error;
       console.warn('⚠️ Gemini failed, trying OpenAI DALL-E 3:', error.message);
@@ -300,7 +313,7 @@ export class AIService {
     // 3rd Priority: OpenAI DALL-E 3 (Final fallback - external URLs expire in 1-2 hours)
     try {
       console.log('🎯 Trying OpenAI DALL-E 3 (Final Fallback - URLs expire quickly)...');
-      return await this.generateAdImagesOpenAI(description, style);
+      return await this.generateAdImagesOpenAI(description, style, referenceImageUrl);
     } catch (error: any) {
       openaiError = error;
       console.error('❌ All image generation providers failed');
