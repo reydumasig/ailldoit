@@ -15,6 +15,7 @@ import TestLearning from "@/pages/test-learning";
 import SuperAdminDashboard from "@/pages/SuperAdminDashboard";
 import Login from "@/pages/auth/login";
 import Register from "@/pages/auth/register";
+import BetaRegister from "@/pages/auth/beta-register";
 import Sidebar from "@/components/sidebar";
 
 function AuthenticatedRouter() {
@@ -57,6 +58,7 @@ function Router() {
     return (
       <Switch>
         <Route path="/register" component={Register} />
+        <Route path="/signup/beta" component={BetaRegister} />
         <Route path="/login" component={Login} />
         <Route path="/" component={Login} />
         <Route component={Login} />

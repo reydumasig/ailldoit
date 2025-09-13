@@ -90,7 +90,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Beta signup route - creates Beta users with 5000 credits
+  // Beta signup route - creates Beta users with 5000 credits (first-time only)
   app.post('/api/auth/signup/beta', async (req, res) => {
     try {
       const authHeader = req.headers.authorization;
@@ -103,9 +103,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Verify Firebase ID token
       const decodedToken = await admin.auth().verifyIdToken(token);
       
-      console.log('🎯 Creating new Beta user:', decodedToken.email);
+      console.log('🎯 Beta signup attempt for:', decodedToken.email);
       
-      // Create or update user with Beta tier and 5000 credits
+      // Check if user already exists
+      const existingUser = await storage.getUserByFirebaseUid(decodedToken.uid);
+      
+      if (existingUser) {
+        // If user already exists, check if they're already Beta
+        if (existingUser.subscriptionTier === 'beta') {
+          console.log('✅ User already has Beta access:', existingUser.email);
+          // Return existing user without modifying credits
+          return res.json(existingUser);
+        } else {
+          // User exists but not Beta - this is a security issue, require admin approval
+          console.log('⛔ Existing user attempted Beta upgrade:', existingUser.email, 'Current tier:', existingUser.subscriptionTier);
+          return res.status(403).json({ 
+            message: 'Beta upgrade for existing users requires admin approval. Please contact support.' 
+          });
+        }
+      }
+      
+      // Create new Beta user with 5000 credits (only for first-time users)
+      console.log('🎯 Creating new Beta user:', decodedToken.email);
       const betaUser = await storage.upsertUser({
         email: decodedToken.email!,
         firebaseUid: decodedToken.uid,
