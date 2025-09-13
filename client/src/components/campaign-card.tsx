@@ -123,7 +123,7 @@ export default function CampaignCard({ campaign }: CampaignCardProps) {
       case 'draft':
         return (
           <Link href={`/campaign/${campaign.id}/generate`}>
-            <Button size="sm" className="bg-ailldoit-accent hover:bg-ailldoit-accent/90 text-white">
+            <Button size="sm">
               <Play className="w-4 h-4 mr-2" />
               Generate
             </Button>
@@ -131,7 +131,7 @@ export default function CampaignCard({ campaign }: CampaignCardProps) {
         );
       case 'generating':
         return (
-          <Button size="sm" disabled className="bg-gray-100 text-gray-500">
+          <Button size="sm" disabled variant="secondary">
             <Clock className="w-4 h-4 mr-2 animate-spin" />
             Processing...
           </Button>
@@ -139,7 +139,7 @@ export default function CampaignCard({ campaign }: CampaignCardProps) {
       case 'ready':
         return (
           <Link href={`/campaign/${campaign.id}/generate`}>
-            <Button size="sm" className="bg-ailldoit-accent hover:bg-ailldoit-accent/90 text-white">
+            <Button size="sm">
               View Details
             </Button>
           </Link>
@@ -147,14 +147,14 @@ export default function CampaignCard({ campaign }: CampaignCardProps) {
       case 'published':
         return (
           <Link href={`/campaign/${campaign.id}/publish`}>
-            <Button size="sm" className="bg-ailldoit-accent hover:bg-ailldoit-accent/90 text-white">
+            <Button size="sm">
               View Details
             </Button>
           </Link>
         );
       case 'active':
         return (
-          <Button size="sm" className="bg-success hover:bg-success/90">
+          <Button size="sm" variant="secondary" className="bg-success hover:bg-success/90 text-white">
             <TrendingUp className="w-4 h-4 mr-2" />
             View Analytics
           </Button>

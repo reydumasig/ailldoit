@@ -4,6 +4,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Link } from "wouter";
 import { Campaign } from "@shared/schema";
+
+interface DashboardStats {
+  totalCampaigns: number;
+  activeCampaigns: number;
+  avgCTR: string;
+  roi: string;
+}
 import StatsCard from "@/components/stats-card";
 import CampaignCard from "@/components/campaign-card";
 import CreditsDisplay from "@/components/credits-display";
@@ -21,9 +28,15 @@ export default function Dashboard() {
     queryKey: ["/api/campaigns"],
   });
 
-  const { data: stats, isLoading: statsLoading } = useQuery({
+  const { data: stats, isLoading: statsLoading } = useQuery<DashboardStats>({
     queryKey: ["/api/dashboard/stats"],
   });
+
+  // Safely access stats with proper typing
+  const totalCampaigns = stats?.totalCampaigns || 0;
+  const activeCampaigns = stats?.activeCampaigns || 0;
+  const avgCTR = stats?.avgCTR || "0%";
+  const roi = stats?.roi || "0%";
 
   const filterCampaigns = (status?: string) => {
     if (!status) return campaigns;
@@ -44,7 +57,7 @@ export default function Dashboard() {
               <Bell className="w-4 h-4" />
             </Button>
             <Link href="/campaign/new">
-              <Button className="bg-ailldoit-accent hover:bg-ailldoit-accent/90 text-white hover:shadow-lg">
+              <Button className="hover:shadow-lg">
                 <Plus className="w-4 h-4 mr-2" />
                 New Campaign
               </Button>
@@ -59,7 +72,7 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
           <StatsCard
             title="Total Campaigns"
-            value={statsLoading ? "..." : stats?.totalCampaigns?.toString() || "0"}
+            value={statsLoading ? "..." : totalCampaigns.toString()}
             change="+12%"
             changeType="positive"
             icon={Megaphone}
@@ -67,7 +80,7 @@ export default function Dashboard() {
           />
           <StatsCard
             title="Active Campaigns"
-            value={statsLoading ? "..." : stats?.activeCampaigns?.toString() || "0"}
+            value={statsLoading ? "..." : activeCampaigns.toString()}
             change="+5%"
             changeType="positive"
             icon={Play}
@@ -75,7 +88,7 @@ export default function Dashboard() {
           />
           <StatsCard
             title="Avg. Engagement"
-            value={statsLoading ? "..." : stats?.avgCTR || "0%"}
+            value={statsLoading ? "..." : avgCTR}
             change="+0.8%"
             changeType="positive"
             icon={MousePointer}
@@ -83,7 +96,7 @@ export default function Dashboard() {
           />
           <StatsCard
             title="Total Views"
-            value={statsLoading ? "..." : stats?.roi || "0"}
+            value={statsLoading ? "..." : roi}
             change="+25%"
             changeType="positive"
             icon={TrendingUp}
@@ -123,7 +136,7 @@ export default function Dashboard() {
                 <div className="text-center py-12">
                   <p className="text-ailldoit-muted mb-4">No campaigns yet</p>
                   <Link href="/campaign/new">
-                    <Button className="bg-ailldoit-accent hover:bg-ailldoit-accent/90 text-white">
+                    <Button>
                       <Plus className="w-4 h-4 mr-2" />
                       Create Your First Campaign
                     </Button>
