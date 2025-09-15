@@ -1,10 +1,9 @@
 import OpenAI from 'openai';
 import Replicate from 'replicate';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Modality } from '@google/genai';
 import { videoHostingService } from './video-hosting-service';
 import { GeneratedContent } from '@shared/schema';
 import { learningService } from './learning-service';
-import { augmentImagePrompt, augmentContentPrompt } from './brand-concepts';
 
 // Initialize AI services
 const openai = new OpenAI({
@@ -98,136 +97,81 @@ export class AIService {
     return this.parseAIResponse(content, platform);
   }
 
-  // Generate images using Gemini's image generation
-  async generateAdImagesGemini(description: string, style: string = "modern", referenceImageUrl?: string, conceptType?: string, conceptUsage?: string): Promise<string[]> {
+  // Generate images using Gemini 2.5 Flash Image ("Nano Banana")
+  async generateAdImagesGemini(description: string, style: string = "modern", referenceImageUrl?: string): Promise<string[]> {
     if (!process.env.GEMINI_API_KEY) {
       throw new Error('GEMINI_API_KEY is required for image generation');
     }
 
     try {
-      console.log(`🎨 Generating images with Gemini Imagen 3: "${description}"`);
+      console.log(`🍌 Generating images with Gemini 2.5 Flash Image (Nano Banana): "${description}"`);
       console.log(`🎯 Style: ${style}`);
-      console.log(`🔑 Using API key: ${process.env.GEMINI_API_KEY?.substring(0, 20)}...`);
       
-      // Use brand concept augmentation
-      const augmented = augmentImagePrompt({
-        description,
-        style,
-        referenceImageUrl,
-        conceptType,
-        conceptUsage
+      // Build enhanced prompt with style and context
+      const enhancedPrompt = `${description}, ${style} style, professional advertising photography, high quality, commercial grade`;
+      
+      console.log(`📝 Enhanced prompt: ${enhancedPrompt}`);
+      
+      // Use Gemini 2.5 Flash Image model
+      const response = await gemini.models.generateContent({
+        model: "gemini-2.5-flash-image-preview",
+        contents: [{ role: "user", parts: [{ text: enhancedPrompt }] }],
+        config: {
+          responseModalities: [Modality.TEXT, Modality.IMAGE],
+        },
       });
-      
-      const enhancedPrompt = augmented.positive;
-      
-      if (conceptType) {
-        console.log(`🍌 Using brand concept: ${conceptType}${conceptUsage ? ` (${conceptUsage})` : ''}`);
-      }
-      
-      // Try multiple model names in order of preference
-      const modelNames = [
-        "imagen-3.0-generate-002", // Latest stable
-        "imagen-3.0-generate-001", // Alternative
-        "imagegeneration@006",     // Legacy naming
-        "imagegeneration@005"      // Fallback
-      ];
-      
-      let lastError;
-      for (const modelName of modelNames) {
-        try {
-          console.log(`🔄 Attempting with model: ${modelName}`);
-          const response = await gemini.models.generateImages({
-            model: modelName,
-            prompt: enhancedPrompt,
-            config: {
-              numberOfImages: 1,
-              aspectRatio: "1:1",
-            },
-          });
 
-          console.log(`✅ Model ${modelName} succeeded`);
-          
-          console.log('🔍 Full response structure:', JSON.stringify(response, null, 2));
-          
-          if (response && (response as any).images && (response as any).images.length > 0) {
-            console.log(`🖼️ Generated ${(response as any).images.length} images`);
-            
-            const imageUrls: string[] = [];
-            for (const image of (response as any).images) {
-              if (image.data) {
-                // Convert to data URL for immediate display
-                const dataUrl = `data:image/png;base64,${image.data}`;
-                imageUrls.push(dataUrl);
-              } else if (image.url) {
-                imageUrls.push(image.url);
-              }
-            }
-            
-            return imageUrls;
-          } else if (response && (response as any).candidates && (response as any).candidates.length > 0) {
-            // Handle different response format
-            console.log(`🖼️ Found ${(response as any).candidates.length} candidates`);
-            
-            const imageUrls: string[] = [];
-            for (const candidate of (response as any).candidates) {
-              if (candidate.content?.parts) {
-                for (const part of candidate.content.parts) {
-                  if (part.inlineData && part.inlineData.data) {
-                    const dataUrl = `data:image/png;base64,${part.inlineData.data}`;
-                    imageUrls.push(dataUrl);
-                  }
-                }
-              }
-            }
-            
-            if (imageUrls.length > 0) {
-              return imageUrls;
-            }
-          } else {
-            console.log(`⚠️ Model ${modelName} succeeded but returned no images in expected format`);
-            console.log('Available response properties:', Object.keys(response || {}));
-            lastError = new Error(`No images returned from ${modelName}`);
-            continue;
-          }
-          
-        } catch (error) {
-          console.log(`❌ Model ${modelName} failed:`, error);
-          lastError = error;
-          continue;
+      console.log(`✅ Gemini 2.5 Flash Image generation completed`);
+      
+      const candidates = response.candidates;
+      if (!candidates || candidates.length === 0) {
+        throw new Error('No candidates returned from Gemini 2.5 Flash Image');
+      }
+
+      const content = candidates[0].content;
+      if (!content || !content.parts) {
+        throw new Error('No content parts returned from Gemini 2.5 Flash Image');
+      }
+
+      const imageUrls: string[] = [];
+      for (const part of content.parts) {
+        if (part.text) {
+          console.log(`🤖 Gemini response: ${part.text}`);
+        } else if (part.inlineData && part.inlineData.data) {
+          // Convert to data URL for immediate display
+          const dataUrl = `data:image/png;base64,${part.inlineData.data}`;
+          imageUrls.push(dataUrl);
+          console.log(`🖼️ Generated image (base64 data URL)`);
         }
       }
       
-      // If we get here, all models failed
-      throw lastError || new Error('All image generation models failed');
+      if (imageUrls.length === 0) {
+        throw new Error('No images generated by Gemini 2.5 Flash Image');
+      }
+      
+      return imageUrls;
 
     } catch (error) {
-      console.error('❌ Gemini Imagen 3 generation failed:', error);
+      console.error('❌ Gemini 2.5 Flash Image generation failed:', error);
       throw new Error(`Failed to generate images: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
   // Generate images using Replicate SDXL (fallback)
-  async generateAdImagesReplicate(description: string, style: string = "modern", referenceImageUrl?: string, conceptType?: string, conceptUsage?: string): Promise<string[]> {
+  async generateAdImagesReplicate(description: string, style: string = "modern", referenceImageUrl?: string): Promise<string[]> {
     try {
-      // Use brand concept augmentation
-      const augmented = augmentImagePrompt({
-        description,
-        style,
-        referenceImageUrl,
-        conceptType,
-        conceptUsage
-      });
+      // Build enhanced prompt with style context
+      const enhancedPrompt = `${description}, ${style} style, professional advertising photography, high quality, commercial grade`;
+      const negativePrompt = "low quality, blurry, distorted, watermark, text, logo, cluttered, unprofessional";
       
-      if (conceptType) {
-        console.log(`🍌 Using brand concept: ${conceptType}${conceptUsage ? ` (${conceptUsage})` : ''}`);
-      }
+      console.log(`🎨 Generating with Replicate SDXL: ${enhancedPrompt}`);
 
       const output = await replicate.run(
         "stability-ai/sdxl:39ed52f2a78e934b3ba6e2a89f5b1c712de7dfea535525255b1aa35c5565e08b",
         {
           input: {
-            prompt: augmented.positive,
-            negative_prompt: augmented.negative,
+            prompt: enhancedPrompt,
+            negative_prompt: negativePrompt,
             width: 1024,
             height: 1024,
             num_inference_steps: 50,
@@ -273,7 +217,7 @@ export class AIService {
   }
 
   // Generate images using OpenAI DALL-E 3
-  async generateAdImagesOpenAI(description: string, style: string = "modern", referenceImageUrl?: string, conceptType?: string, conceptUsage?: string): Promise<string[]> {
+  async generateAdImagesOpenAI(description: string, style: string = "modern", referenceImageUrl?: string): Promise<string[]> {
     if (!process.env.OPENAI_API_KEY) {
       throw new Error('OPENAI_API_KEY is required for image generation');
     }
@@ -282,20 +226,10 @@ export class AIService {
       console.log(`🎨 Generating images with OpenAI DALL-E 3: "${description}"`);
       console.log(`🎯 Style: ${style}`);
       
-      // Use brand concept augmentation
-      const augmented = augmentImagePrompt({
-        description,
-        style,
-        referenceImageUrl,
-        conceptType,
-        conceptUsage
-      });
+      // Build enhanced prompt with style context
+      const enhancedPrompt = `${description}, ${style} style, professional advertising photography, high quality, commercial grade, 4K resolution`;
       
-      if (conceptType) {
-        console.log(`🍌 Using brand concept: ${conceptType}${conceptUsage ? ` (${conceptUsage})` : ''}`);
-      }
-      
-      const enhancedPrompt = `${augmented.positive}, 4K resolution`;
+      console.log(`📝 Enhanced prompt: ${enhancedPrompt}`);
       
       const response = await openai.images.generate({
         model: "dall-e-3",
@@ -317,39 +251,35 @@ export class AIService {
     }
   }
 
-  // Main image generation method with proper provider hierarchy: Replicate → Gemini → OpenAI DALL-E
-  async generateAdImages(description: string, style: string = "modern", referenceImageUrl?: string, conceptType?: string, conceptUsage?: string): Promise<string[]> {
+  // Main image generation method with optimized provider hierarchy: Replicate → Gemini 2.5 Flash → OpenAI DALL-E
+  async generateAdImages(description: string, style: string = "modern", referenceImageUrl?: string): Promise<string[]> {
     console.log(`🎨 Starting image generation: "${description}"`);
-    console.log(`📝 Provider hierarchy: Replicate SDXL → Gemini Imagen 3 → OpenAI DALL-E 3`);
-    
-    if (conceptType) {
-      console.log(`🍌 Brand concept enabled: ${conceptType}${conceptUsage ? ` (${conceptUsage})` : ''}`);
-    }
+    console.log(`📝 Provider hierarchy: Replicate SDXL → Gemini 2.5 Flash Image (Nano Banana) → OpenAI DALL-E 3`);
     
     let replicateError, geminiError, openaiError;
     
     // 1st Priority: Replicate SDXL (Primary - most reliable for advertising images)
     try {
       console.log('🎯 Trying Replicate SDXL (Primary)...');
-      return await this.generateAdImagesReplicate(description, style, referenceImageUrl, conceptType, conceptUsage);
+      return await this.generateAdImagesReplicate(description, style, referenceImageUrl);
     } catch (error: any) {
       replicateError = error;
-      console.warn('⚠️ Replicate failed, trying Gemini Imagen 3:', error.message);
+      console.warn('⚠️ Replicate failed, trying Gemini 2.5 Flash Image (Nano Banana):', error.message);
     }
     
-    // 2nd Priority: Gemini Imagen 3 (Secondary - Google's latest image model)
+    // 2nd Priority: Gemini 2.5 Flash Image - Nano Banana (Secondary - Google's latest image model)
     try {
-      console.log('🎯 Trying Gemini Imagen 3 (Secondary)...');
-      return await this.generateAdImagesGemini(description, style, referenceImageUrl, conceptType, conceptUsage);
+      console.log('🎯 Trying Gemini 2.5 Flash Image - Nano Banana (Secondary)...');
+      return await this.generateAdImagesGemini(description, style, referenceImageUrl);
     } catch (error: any) {
       geminiError = error;
-      console.warn('⚠️ Gemini failed, trying OpenAI DALL-E 3:', error.message);
+      console.warn('⚠️ Gemini 2.5 Flash Image failed, trying OpenAI DALL-E 3:', error.message);
     }
     
     // 3rd Priority: OpenAI DALL-E 3 (Final fallback - external URLs expire in 1-2 hours)
     try {
       console.log('🎯 Trying OpenAI DALL-E 3 (Final Fallback - URLs expire quickly)...');
-      return await this.generateAdImagesOpenAI(description, style, referenceImageUrl, conceptType, conceptUsage);
+      return await this.generateAdImagesOpenAI(description, style, referenceImageUrl);
     } catch (error: any) {
       openaiError = error;
       console.error('❌ All image generation providers failed');
