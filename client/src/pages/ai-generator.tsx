@@ -49,47 +49,8 @@ export default function AIGenerator() {
     queryKey: [`/api/campaigns/${campaignId}`],
     enabled: !!isValidCampaignId,
   });
-  
-  console.log('📊 Campaign query result:', { campaign, isLoading, error, isValidCampaignId });
-  
-  // Handle invalid campaign ID
-  if (!isValidCampaignId) {
-    console.error('❌ Invalid campaign ID detected:', campaignId);
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50">
-        <div className="text-center space-y-4">
-          <h1 className="text-2xl font-bold text-gray-900">Campaign Not Found</h1>
-          <p className="text-gray-600">The campaign ID is invalid or missing.</p>
-          <Button onClick={() => setLocation('/')} className="mt-4">
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Dashboard
-          </Button>
-        </div>
-      </div>
-    );
-  }
-  
-  // Handle campaign not found error
-  if (error || (!isLoading && !campaign)) {
-    console.error('❌ Campaign not found or error:', error);
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50">
-        <div className="text-center space-y-4">
-          <h1 className="text-2xl font-bold text-gray-900">Campaign Not Found</h1>
-          <p className="text-gray-600">This campaign doesn't exist or you don't have access to it.</p>
-          <Button onClick={() => setLocation('/')} className="mt-4">
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Dashboard
-          </Button>
-        </div>
-      </div>
-    );
-  }
 
-  const content = campaign?.generatedContent as GeneratedContent;
-
-  // Note: Removed complex video status checking to simplify video display
-
+  // ALL HOOKS MUST BE CALLED BEFORE ANY EARLY RETURNS
   const generateContent = useMutation({
     mutationFn: async (id: string) => {
       const response = await apiRequest("POST", `/api/campaigns/${id}/generate`);
@@ -175,6 +136,68 @@ export default function AIGenerator() {
     },
   });
 
+  // Variant testing functions
+  const selectVariant = useMutation({
+    mutationFn: async (variantId: string) => {
+      const response = await apiRequest("PATCH", `/api/campaigns/${campaignId}/variants`, {
+        selectedVariantId: variantId
+      });
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Variant selected",
+        description: "This variant will be used for your campaign",
+      });
+      queryClient.invalidateQueries({ queryKey: [`/api/campaigns/${campaignId}`] });
+    },
+    onError: (error) => {
+      toast({
+        title: "Selection failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  console.log('📊 Campaign query result:', { campaign, isLoading, error, isValidCampaignId });
+  
+  // Handle invalid campaign ID
+  if (!isValidCampaignId) {
+    console.error('❌ Invalid campaign ID detected:', campaignId);
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50">
+        <div className="text-center space-y-4">
+          <h1 className="text-2xl font-bold text-gray-900">Campaign Not Found</h1>
+          <p className="text-gray-600">The campaign ID is invalid or missing.</p>
+          <Button onClick={() => setLocation('/')} className="mt-4">
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back to Dashboard
+          </Button>
+        </div>
+      </div>
+    );
+  }
+  
+  // Handle campaign not found error
+  if (error || (!isLoading && !campaign)) {
+    console.error('❌ Campaign not found or error:', error);
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50">
+        <div className="text-center space-y-4">
+          <h1 className="text-2xl font-bold text-gray-900">Campaign Not Found</h1>
+          <p className="text-gray-600">This campaign doesn't exist or you don't have access to it.</p>
+          <Button onClick={() => setLocation('/')} className="mt-4">
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back to Dashboard
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const content = campaign?.generatedContent as GeneratedContent;
+
   // Copy content to clipboard
   const copyToClipboard = async (content: string, type: string) => {
     try {
@@ -228,29 +251,7 @@ export default function AIGenerator() {
     }
   };
 
-  // Variant testing functions
-  const selectVariant = useMutation({
-    mutationFn: async (variantId: string) => {
-      const response = await apiRequest("PATCH", `/api/campaigns/${campaignId}/variants`, {
-        selectedVariantId: variantId
-      });
-      return response.json();
-    },
-    onSuccess: () => {
-      toast({
-        title: "Variant selected",
-        description: "This variant will be used for your campaign",
-      });
-      queryClient.invalidateQueries({ queryKey: [`/api/campaigns/${campaignId}`] });
-    },
-    onError: (error) => {
-      toast({
-        title: "Selection failed",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
+  // Variant testing functions (moved to top with other hooks)
 
   const startABTest = () => {
     toast({
