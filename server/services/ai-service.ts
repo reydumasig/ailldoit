@@ -181,10 +181,8 @@ export class AIService {
         contents: [{ role: "user", parts }],
         config: {
           responseModalities: [Modality.TEXT, Modality.IMAGE],
-          generationConfig: {
-            temperature: 0.7,
-            candidateCount: 1,
-          }
+          temperature: 0.7,
+          candidateCount: 1,
         },
       });
 
@@ -500,7 +498,6 @@ export class AIService {
         config: {
           aspectRatio: "16:9",
           // Note: 8-second duration is implicit in the model
-          includeAudio: true, // Enable audio generation
           personGeneration: "allow_all"
         },
       });
@@ -584,7 +581,6 @@ export class AIService {
         config: {
           aspectRatio: "16:9",
           // Note: 8-second duration is implicit in the model
-          includeAudio: true, // Enable audio generation
           personGeneration: "allow_all"
         },
       });

@@ -80,56 +80,94 @@ export class FirebaseStorageService {
   }
 
   /**
-   * Upload video from a URL (e.g., from AI service) to Firebase Storage
+   * Upload video from a URL (e.g., from AI service) to Firebase Storage with immediate download and retry logic
    * @param videoUrl - URL of the video to download and upload
    * @param filename - Custom filename for the uploaded file
+   * @param maxRetries - Maximum number of retry attempts (default: 3)
    * @returns Promise<string> - Public download URL
    */
-  async uploadVideoFromUrl(videoUrl: string, filename?: string): Promise<string> {
+  async uploadVideoFromUrl(videoUrl: string, filename?: string, maxRetries: number = 3): Promise<string> {
     if (!this.bucket) {
       throw new Error('Firebase Storage not initialized');
     }
 
-    try {
-      // Generate unique filename if not provided
-      const finalFilename = filename || `video_${uuidv4()}.mp4`;
-      const storagePath = `videos/${finalFilename}`;
+    // Generate unique filename if not provided
+    const finalFilename = filename || `video_${uuidv4()}.mp4`;
+    const storagePath = `videos/${finalFilename}`;
+    
+    console.log(`🚀 Starting immediate video download from URL: ${videoUrl}`);
+    console.log(`📁 Target storage path: ${storagePath}`);
+    console.log(`🔁 Max retries: ${maxRetries}`);
 
-      // Download video from URL and upload directly to Firebase Storage
-      const response = await fetch(videoUrl);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch video from URL: ${response.statusText}`);
-      }
+    let lastError: Error | null = null;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`📥 Download attempt ${attempt}/${maxRetries}...`);
+        
+        // Download video with timeout and immediate execution
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+        
+        const response = await fetch(videoUrl, {
+          signal: controller.signal,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (compatible; VideoDownloader/1.0)',
+          }
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status} ${response.statusText}: ${await response.text().catch(() => 'No response body')}`);
+        }
+        
+        console.log(`✅ Video fetched successfully (${response.headers.get('content-length') || 'unknown'} bytes)`);
+        
+        const videoBuffer = Buffer.from(await response.arrayBuffer());
+        console.log(`📦 Video buffer created: ${Math.round(videoBuffer.length / 1024)}KB`);
 
-      const videoBuffer = Buffer.from(await response.arrayBuffer());
-
-      // Create a file reference and upload the buffer
-      const file = this.bucket.file(storagePath);
-      
-      await file.save(videoBuffer, {
-        metadata: {
-          contentType: 'video/mp4',
+        // Create a file reference and upload the buffer
+        const file = this.bucket.file(storagePath);
+        
+        await file.save(videoBuffer, {
           metadata: {
-            firebaseStorageDownloadTokens: uuidv4(),
+            contentType: 'video/mp4',
+            metadata: {
+              firebaseStorageDownloadTokens: uuidv4(),
+              originalUrl: videoUrl,
+              uploadedAt: new Date().toISOString(),
+            },
           },
-        },
-        public: true,
-      });
+          public: true,
+        });
+        
+        console.log(`☁️ Video uploaded to Firebase Storage successfully`);
 
-      // Get the public download URL
-      const [url] = await file.getSignedUrl({
-        action: 'read',
-        expires: '03-17-2125', // Far future date for permanent access
-      });
+        // Get the public download URL
+        const [url] = await file.getSignedUrl({
+          action: 'read',
+          expires: '03-17-2125', // Far future date for permanent access
+        });
 
-      console.log('✅ Video uploaded to Firebase Storage from URL:', storagePath);
-      console.log('🔗 Public URL:', url);
+        console.log('✅ Video uploaded to Firebase Storage from URL:', storagePath);
+        console.log('🔗 Public URL:', url);
 
-      return url;
-    } catch (error) {
-      console.error('❌ Firebase Storage upload from URL failed:', error);
-      throw new Error(`Failed to upload video from URL to Firebase Storage: ${error}`);
+        return url;
+      } catch (error: any) {
+        lastError = error;
+        console.error(`❌ Attempt ${attempt}/${maxRetries} failed:`, error.message);
+        
+        if (attempt < maxRetries) {
+          const delay = Math.pow(2, attempt) * 1000; // Exponential backoff: 2s, 4s, 8s
+          console.log(`⏳ Retrying in ${delay/1000}s...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
     }
+    
+    console.error('❌ All download attempts failed');
+    throw new Error(`Failed to upload video from URL to Firebase Storage after ${maxRetries} attempts. Last error: ${lastError?.message}`);
   }
 
   /**
@@ -155,6 +193,108 @@ export class FirebaseStorageService {
       console.error('❌ Firebase Storage deletion failed:', error);
       throw new Error(`Failed to delete video from Firebase Storage: ${error}`);
     }
+  }
+
+  /**
+   * Upload video from a buffer to Firebase Storage
+   * @param videoBuffer - Video content as Buffer
+   * @param filename - Custom filename for the uploaded file
+   * @returns Promise<string> - Public download URL
+   */
+  async uploadVideoFromBuffer(videoBuffer: Buffer, filename?: string): Promise<string> {
+    if (!this.bucket) {
+      throw new Error('Firebase Storage not initialized');
+    }
+
+    try {
+      // Generate unique filename if not provided
+      const finalFilename = filename || `video_${uuidv4()}.mp4`;
+      const storagePath = `videos/${finalFilename}`;
+      
+      console.log(`📦 Uploading video buffer (${Math.round(videoBuffer.length / 1024)}KB) to: ${storagePath}`);
+
+      // Create a file reference and upload the buffer
+      const file = this.bucket.file(storagePath);
+      
+      await file.save(videoBuffer, {
+        metadata: {
+          contentType: 'video/mp4',
+          metadata: {
+            firebaseStorageDownloadTokens: uuidv4(),
+            uploadedAt: new Date().toISOString(),
+          },
+        },
+        public: true,
+      });
+
+      // Get the public download URL
+      const [url] = await file.getSignedUrl({
+        action: 'read',
+        expires: '03-17-2125', // Far future date for permanent access
+      });
+
+      console.log('✅ Video buffer uploaded to Firebase Storage:', storagePath);
+      console.log('🔗 Public URL:', url);
+
+      return url;
+    } catch (error) {
+      console.error('❌ Firebase Storage upload from buffer failed:', error);
+      throw new Error(`Failed to upload video buffer to Firebase Storage: ${error}`);
+    }
+  }
+
+  /**
+   * Download video immediately and return buffer (for immediate processing)
+   * @param videoUrl - URL of the video to download
+   * @param maxRetries - Maximum number of retry attempts (default: 3)
+   * @returns Promise<Buffer> - Video content as buffer
+   */
+  async downloadVideoImmediately(videoUrl: string, maxRetries: number = 3): Promise<Buffer> {
+    console.log(`🚀 Immediate video download starting: ${videoUrl}`);
+    
+    let lastError: Error | null = null;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`📥 Download attempt ${attempt}/${maxRetries}...`);
+        
+        // Download video with timeout and immediate execution
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+        
+        const response = await fetch(videoUrl, {
+          signal: controller.signal,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (compatible; VideoDownloader/1.0)',
+          }
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status} ${response.statusText}: ${await response.text().catch(() => 'No response body')}`);
+        }
+        
+        console.log(`✅ Video fetched successfully (${response.headers.get('content-length') || 'unknown'} bytes)`);
+        
+        const videoBuffer = Buffer.from(await response.arrayBuffer());
+        console.log(`📦 Video buffer created: ${Math.round(videoBuffer.length / 1024)}KB`);
+        
+        return videoBuffer;
+      } catch (error: any) {
+        lastError = error;
+        console.error(`❌ Download attempt ${attempt}/${maxRetries} failed:`, error.message);
+        
+        if (attempt < maxRetries) {
+          const delay = Math.pow(2, attempt) * 1000; // Exponential backoff: 2s, 4s, 8s
+          console.log(`⏳ Retrying in ${delay/1000}s...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+    }
+    
+    console.error('❌ All download attempts failed');
+    throw new Error(`Failed to download video after ${maxRetries} attempts. Last error: ${lastError?.message}`);
   }
 
   /**
