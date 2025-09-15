@@ -4,6 +4,7 @@ import { GoogleGenAI } from '@google/genai';
 import { videoHostingService } from './video-hosting-service';
 import { GeneratedContent } from '@shared/schema';
 import { learningService } from './learning-service';
+import { augmentImagePrompt, augmentContentPrompt } from './brand-concepts';
 
 // Initialize AI services
 const openai = new OpenAI({
@@ -98,7 +99,7 @@ export class AIService {
   }
 
   // Generate images using Gemini's image generation
-  async generateAdImagesGemini(description: string, style: string = "modern", referenceImageUrl?: string): Promise<string[]> {
+  async generateAdImagesGemini(description: string, style: string = "modern", referenceImageUrl?: string, conceptType?: string, conceptUsage?: string): Promise<string[]> {
     if (!process.env.GEMINI_API_KEY) {
       throw new Error('GEMINI_API_KEY is required for image generation');
     }
@@ -108,10 +109,19 @@ export class AIService {
       console.log(`🎯 Style: ${style}`);
       console.log(`🔑 Using API key: ${process.env.GEMINI_API_KEY?.substring(0, 20)}...`);
       
-      let enhancedPrompt = `${description}, ${style} style, high quality, professional advertising photo, clean background, well-lit, commercial photography, product showcase, social media ready, avoid blurry or low quality images, no text or watermarks`;
+      // Use brand concept augmentation
+      const augmented = augmentImagePrompt({
+        description,
+        style,
+        referenceImageUrl,
+        conceptType,
+        conceptUsage
+      });
       
-      if (referenceImageUrl) {
-        enhancedPrompt += `. Take visual inspiration from the provided reference material for color scheme, style, and branding elements.`;
+      const enhancedPrompt = augmented.positive;
+      
+      if (conceptType) {
+        console.log(`🍌 Using brand concept: ${conceptType}${conceptUsage ? ` (${conceptUsage})` : ''}`);
       }
       
       // Try multiple model names in order of preference
@@ -197,14 +207,27 @@ export class AIService {
   }
 
   // Generate images using Replicate SDXL (fallback)
-  async generateAdImagesReplicate(description: string, style: string = "modern", referenceImageUrl?: string): Promise<string[]> {
+  async generateAdImagesReplicate(description: string, style: string = "modern", referenceImageUrl?: string, conceptType?: string, conceptUsage?: string): Promise<string[]> {
     try {
+      // Use brand concept augmentation
+      const augmented = augmentImagePrompt({
+        description,
+        style,
+        referenceImageUrl,
+        conceptType,
+        conceptUsage
+      });
+      
+      if (conceptType) {
+        console.log(`🍌 Using brand concept: ${conceptType}${conceptUsage ? ` (${conceptUsage})` : ''}`);
+      }
+
       const output = await replicate.run(
         "stability-ai/sdxl:39ed52f2a78e934b3ba6e2a89f5b1c712de7dfea535525255b1aa35c5565e08b",
         {
           input: {
-            prompt: `${description}, ${style} style, high quality, professional advertising photo, clean background${referenceImageUrl ? ', taking visual inspiration from provided reference material for styling and branding' : ''}`,
-            negative_prompt: "blurry, low quality, distorted, text, watermark",
+            prompt: augmented.positive,
+            negative_prompt: augmented.negative,
             width: 1024,
             height: 1024,
             num_inference_steps: 50,
@@ -250,7 +273,7 @@ export class AIService {
   }
 
   // Generate images using OpenAI DALL-E 3
-  async generateAdImagesOpenAI(description: string, style: string = "modern", referenceImageUrl?: string): Promise<string[]> {
+  async generateAdImagesOpenAI(description: string, style: string = "modern", referenceImageUrl?: string, conceptType?: string, conceptUsage?: string): Promise<string[]> {
     if (!process.env.OPENAI_API_KEY) {
       throw new Error('OPENAI_API_KEY is required for image generation');
     }
@@ -259,11 +282,20 @@ export class AIService {
       console.log(`🎨 Generating images with OpenAI DALL-E 3: "${description}"`);
       console.log(`🎯 Style: ${style}`);
       
-      let enhancedPrompt = `${description}, ${style} style, high quality, professional advertising photo, clean background, well-lit, commercial photography, product showcase, social media ready, 4K resolution, no text or watermarks`;
+      // Use brand concept augmentation
+      const augmented = augmentImagePrompt({
+        description,
+        style,
+        referenceImageUrl,
+        conceptType,
+        conceptUsage
+      });
       
-      if (referenceImageUrl) {
-        enhancedPrompt += `. Take visual inspiration from the provided reference material for color scheme, style, and branding elements.`;
+      if (conceptType) {
+        console.log(`🍌 Using brand concept: ${conceptType}${conceptUsage ? ` (${conceptUsage})` : ''}`);
       }
+      
+      const enhancedPrompt = `${augmented.positive}, 4K resolution`;
       
       const response = await openai.images.generate({
         model: "dall-e-3",
@@ -286,16 +318,20 @@ export class AIService {
   }
 
   // Main image generation method with proper provider hierarchy: Replicate → Gemini → OpenAI DALL-E
-  async generateAdImages(description: string, style: string = "modern", referenceImageUrl?: string): Promise<string[]> {
+  async generateAdImages(description: string, style: string = "modern", referenceImageUrl?: string, conceptType?: string, conceptUsage?: string): Promise<string[]> {
     console.log(`🎨 Starting image generation: "${description}"`);
     console.log(`📝 Provider hierarchy: Replicate SDXL → Gemini Imagen 3 → OpenAI DALL-E 3`);
+    
+    if (conceptType) {
+      console.log(`🍌 Brand concept enabled: ${conceptType}${conceptUsage ? ` (${conceptUsage})` : ''}`);
+    }
     
     let replicateError, geminiError, openaiError;
     
     // 1st Priority: Replicate SDXL (Primary - most reliable for advertising images)
     try {
       console.log('🎯 Trying Replicate SDXL (Primary)...');
-      return await this.generateAdImagesReplicate(description, style, referenceImageUrl);
+      return await this.generateAdImagesReplicate(description, style, referenceImageUrl, conceptType, conceptUsage);
     } catch (error: any) {
       replicateError = error;
       console.warn('⚠️ Replicate failed, trying Gemini Imagen 3:', error.message);
@@ -304,7 +340,7 @@ export class AIService {
     // 2nd Priority: Gemini Imagen 3 (Secondary - Google's latest image model)
     try {
       console.log('🎯 Trying Gemini Imagen 3 (Secondary)...');
-      return await this.generateAdImagesGemini(description, style, referenceImageUrl);
+      return await this.generateAdImagesGemini(description, style, referenceImageUrl, conceptType, conceptUsage);
     } catch (error: any) {
       geminiError = error;
       console.warn('⚠️ Gemini failed, trying OpenAI DALL-E 3:', error.message);
@@ -313,7 +349,7 @@ export class AIService {
     // 3rd Priority: OpenAI DALL-E 3 (Final fallback - external URLs expire in 1-2 hours)
     try {
       console.log('🎯 Trying OpenAI DALL-E 3 (Final Fallback - URLs expire quickly)...');
-      return await this.generateAdImagesOpenAI(description, style, referenceImageUrl);
+      return await this.generateAdImagesOpenAI(description, style, referenceImageUrl, conceptType, conceptUsage);
     } catch (error: any) {
       openaiError = error;
       console.error('❌ All image generation providers failed');
