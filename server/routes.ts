@@ -399,16 +399,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Generate new image using our optimized hierarchy (Replicate SDXL primary)
       const imagePrompt = `Professional advertising image for ${campaign.name}: ${campaign.brief}`;
       
-      // Extract concept parameters for nano banana motif
-      const conceptType = (req.body as any).conceptType || undefined;
-      const conceptUsage = (req.body as any).conceptUsage || undefined;
-      
       const imageUrls = await aiService.generateAdImages(
         imagePrompt, 
         'clean modern advertising style',
-        campaign.referenceImageUrl || undefined,
-        conceptType,
-        conceptUsage
+        campaign.referenceImageUrl || undefined
       );
       
       if (imageUrls.length > 0) {
@@ -626,16 +620,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
               metadata: { type: 'campaign_image' }
             });
 
-            // Extract concept parameters for nano banana motif
-            const conceptType = (req.body as any).conceptType || undefined;
-            const conceptUsage = (req.body as any).conceptUsage || undefined;
-            
             const images = await aiService.generateAdImages(
               campaign.brief, 
               "modern", 
-              campaign.referenceImageUrl || undefined,
-              conceptType,
-              conceptUsage
+              campaign.referenceImageUrl || undefined
             );
             generatedContent.imageAssets = images || [];
             

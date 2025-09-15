@@ -13,7 +13,7 @@ import { insertCampaignSchema } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
-import { ArrowLeft, Wand2, Video, Image as ImageIcon, Lightbulb, Sparkles, Upload, X, Banana } from "lucide-react";
+import { ArrowLeft, Wand2, Video, Image as ImageIcon, Lightbulb, Sparkles, Upload, X } from "lucide-react";
 import BriefTemplateSelector from "@/components/BriefTemplateSelector";
 import PromptSelectorTool from "@/components/PromptSelectorTool";
 import { LinkedPromptSuggestions } from "@/components/LinkedPromptSuggestions";
@@ -57,9 +57,6 @@ export default function CampaignForm() {
   const [referenceImage, setReferenceImage] = useState<{ url: string; name: string } | null>(null);
   const [uploadingReference, setUploadingReference] = useState(false);
   
-  // Nano banana motif state
-  const [nanoBananaEnabled, setNanoBananaEnabled] = useState(false);
-  const [nanoBananaUsage, setNanoBananaUsage] = useState("mascot");
 
   // Get edit campaign ID from URL params
   const urlParams = new URLSearchParams(window.location.search);
@@ -271,9 +268,6 @@ export default function CampaignForm() {
       campaignType: selectedCampaignType,
       status: data.status || "draft",
       referenceImageUrl: data.referenceImageUrl || null,
-      // Nano banana motif parameters
-      conceptType: nanoBananaEnabled ? "nanoBanana" : undefined,
-      conceptUsage: nanoBananaEnabled ? nanoBananaUsage : undefined,
       // Don't send heavy data like generatedContent, variants, etc. in updates
     };
     
@@ -620,78 +614,6 @@ export default function CampaignForm() {
                     </CardContent>
                   </Card>
 
-                  {/* Nano Banana Brand Motif */}
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center">
-                        <Banana className="w-5 h-5 mr-2 text-yellow-500" />
-                        Nano Banana Motif (Optional)
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <p className="text-sm text-ailldoit-muted">
-                        Add subtle nano banana visual elements to enhance your brand identity across all generated content
-                      </p>
-                      
-                      <div className="flex items-center justify-between p-3 border rounded-lg">
-                        <div className="flex items-center space-x-3">
-                          <Banana className="w-5 h-5 text-yellow-500" />
-                          <div>
-                            <p className="text-sm font-medium text-foreground">
-                              Enable Nano Banana Motif
-                            </p>
-                            <p className="text-xs text-ailldoit-muted">
-                              Adds micro banana-themed visual accents to your content
-                            </p>
-                          </div>
-                        </div>
-                        <label className="relative inline-flex items-center cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={nanoBananaEnabled}
-                            onChange={(e) => setNanoBananaEnabled(e.target.checked)}
-                            className="sr-only peer"
-                            data-testid="toggle-nano-banana"
-                          />
-                          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-ailldoit-accent/25 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-ailldoit-accent"></div>
-                        </label>
-                      </div>
-
-                      {nanoBananaEnabled && (
-                        <div className="space-y-3 pl-4 border-l-2 border-ailldoit-accent/30">
-                          <div>
-                            <label className="text-sm font-medium text-foreground mb-2 block">
-                              Motif Style
-                            </label>
-                            <div className="grid grid-cols-2 gap-2">
-                              {[
-                                { value: "mascot", label: "Tiny Mascot", desc: "Small banana character accents" },
-                                { value: "pattern", label: "Background Pattern", desc: "Subtle banana motif patterns" },
-                                { value: "garnish", label: "Product Garnish", desc: "Banana elements in product shots" },
-                                { value: "tech", label: "Tech Precision", desc: "Nano-scale banana highlights" }
-                              ].map((option) => (
-                                <button
-                                  key={option.value}
-                                  type="button"
-                                  onClick={() => setNanoBananaUsage(option.value)}
-                                  className={cn(
-                                    "p-3 text-left border-2 rounded-lg transition-all hover:bg-opacity-20",
-                                    nanoBananaUsage === option.value
-                                      ? "border-ailldoit-accent bg-ailldoit-accent/10 text-ailldoit-accent"
-                                      : "border-gray-200 text-ailldoit-muted hover:border-gray-300"
-                                  )}
-                                  data-testid={`select-usage-${option.value}`}
-                                >
-                                  <div className="text-sm font-medium mb-1">{option.label}</div>
-                                  <div className="text-xs">{option.desc}</div>
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
 
                   <Button 
                     onClick={handleSubmitClick}

@@ -19,6 +19,37 @@ const gemini = new GoogleGenAI({
 });
 
 export class AIService {
+  // Helper function to fetch and convert images to base64 with mime type detection
+  private async fetchImageAsBase64(imageUrl: string): Promise<{ data: string; mimeType: string }> {
+    try {
+      console.log(`📥 Fetching reference image: ${imageUrl}`);
+      
+      const response = await fetch(imageUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`);
+      }
+      
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.startsWith('image/')) {
+        throw new Error(`Invalid content type: ${contentType}. Expected image/*`);
+      }
+      
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      const base64 = buffer.toString('base64');
+      
+      console.log(`✅ Image fetched successfully (${Math.round(arrayBuffer.byteLength / 1024)}KB, ${contentType})`);
+      
+      return {
+        data: base64,
+        mimeType: contentType
+      };
+    } catch (error) {
+      console.error(`❌ Failed to fetch reference image:`, error);
+      throw new Error(`Failed to process reference image: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   // Generate ad content using OpenAI GPT-4 with learning optimization
   async generateAdContent(brief: string, platform: string, language: string, userId?: string, referenceImageUrl?: string): Promise<GeneratedContent> {
     try {
@@ -106,18 +137,54 @@ export class AIService {
     try {
       console.log(`🍌 Generating images with Gemini 2.5 Flash Image (Nano Banana): "${description}"`);
       console.log(`🎯 Style: ${style}`);
+      if (referenceImageUrl) {
+        console.log(`🖼️ Reference image provided: ${referenceImageUrl}`);
+      }
+      
+      // Build the parts array for multimodal input
+      const parts: any[] = [];
+      
+      // Add reference image if provided
+      if (referenceImageUrl) {
+        try {
+          const { data, mimeType } = await this.fetchImageAsBase64(referenceImageUrl);
+          parts.push({
+            inlineData: {
+              data: data,
+              mimeType: mimeType
+            }
+          });
+          console.log(`✅ Reference image added to generation context`);
+        } catch (imageError) {
+          console.warn(`⚠️ Failed to process reference image, continuing without it:`, imageError);
+          // Continue without reference image rather than failing completely
+        }
+      }
       
       // Build enhanced prompt with style and context
-      const enhancedPrompt = `${description}, ${style} style, professional advertising photography, high quality, commercial grade`;
+      let enhancedPrompt;
+      if (referenceImageUrl && parts.length > 0) {
+        enhancedPrompt = `Generate a new image based on the reference image provided. Style: ${style}. Description: ${description}. Create a professional advertising image that maintains the visual style, branding, and aesthetic elements from the reference while incorporating the new description. High quality, commercial grade, professional photography style.`;
+      } else {
+        enhancedPrompt = `${description}, ${style} style, professional advertising photography, high quality, commercial grade`;
+      }
+      
+      // Add text prompt to parts
+      parts.push({ text: enhancedPrompt });
       
       console.log(`📝 Enhanced prompt: ${enhancedPrompt}`);
+      console.log(`📊 Total parts: ${parts.length} (${parts.some(p => p.inlineData) ? 'includes reference image' : 'text only'})`);
       
-      // Use Gemini 2.5 Flash Image model
+      // Use Gemini 2.5 Flash Image model with multimodal input
       const response = await gemini.models.generateContent({
         model: "gemini-2.5-flash-image-preview",
-        contents: [{ role: "user", parts: [{ text: enhancedPrompt }] }],
+        contents: [{ role: "user", parts }],
         config: {
           responseModalities: [Modality.TEXT, Modality.IMAGE],
+          generationConfig: {
+            temperature: 0.7,
+            candidateCount: 1,
+          }
         },
       });
 
