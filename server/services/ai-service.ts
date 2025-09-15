@@ -628,11 +628,10 @@ export class AIService {
             console.error('📜 Stack trace:', hostingError.stack);
           }
           
-          // Fallback to temporary URL with warning
-          const videoUrl = video.video.uri || '';
-          console.warn('🚨 CRITICAL: Using temporary URL that will expire soon:', videoUrl);
-          console.warn('🚨 This will cause "Video Expired" errors for users!');
-          return videoUrl ? [videoUrl] : [];
+          // Do NOT use expired URLs - throw error instead
+          console.error('🚨 CRITICAL: Video hosting failed completely. Cannot provide working video URL.');
+          console.error('🚨 Temporary URLs expire quickly and cause "Video Expired" errors.');
+          throw new Error('Video generation failed: Unable to store video permanently. Please try again.');
         }
         
         // This code should not be reached due to early return above

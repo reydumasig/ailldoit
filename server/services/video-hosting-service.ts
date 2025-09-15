@@ -67,7 +67,12 @@ export class VideoHostingService {
     } catch (error) {
       console.error('❌ Traditional upload failed:', error);
       console.warn('🔄 Final fallback to local storage...');
-      return await this.uploadToLocalStorage(videoUrl, finalFilename);
+      try {
+        return await this.uploadToLocalStorage(videoUrl, finalFilename);
+      } catch (localError) {
+        console.error('❌ All video hosting methods failed. Not storing expired URL.');
+        throw new Error(`Video hosting failed: Unable to store video permanently. Original error: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   }
 
