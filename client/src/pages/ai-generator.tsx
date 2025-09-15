@@ -28,7 +28,8 @@ import {
   Copy,
   Package,
   CheckCircle,
-  RefreshCw
+  RefreshCw,
+  AlertTriangle
 } from "lucide-react";
 import { SiTiktok } from "react-icons/si";
 
@@ -295,7 +296,41 @@ export default function AIGenerator() {
     );
   };
 
-  // Video expired error component
+  // Video hosting error component (for server-side hosting failures)
+  const VideoHostingError = () => (
+    <div className="bg-gradient-to-br from-orange-50 to-red-50 border-2 border-orange-200 rounded-xl flex items-center justify-center h-full">
+      <div className="text-center p-4">
+        <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-3">
+          <AlertTriangle className="w-6 h-6 text-orange-600" />
+        </div>
+        <p className="text-sm text-orange-600 font-medium mb-2">Video Hosting Issue</p>
+        <p className="text-xs text-muted-foreground mb-4">
+          {content?.videoError || "Video hosting is temporarily unavailable"}
+        </p>
+        <Button
+          data-testid="button-regenerate-video"
+          size="sm"
+          onClick={() => regenerateVideo.mutate(campaignId)}
+          disabled={regenerateVideo.isPending}
+          className="bg-orange-600 hover:bg-orange-700 text-white"
+        >
+          {regenerateVideo.isPending ? (
+            <>
+              <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin mr-2" />
+              Regenerating...
+            </>
+          ) : (
+            <>
+              <RefreshCw className="w-3 h-3 mr-2" />
+              Try Again
+            </>
+          )}
+        </Button>
+      </div>
+    </div>
+  );
+
+  // Video expired error component (for client-side loading failures)
   const VideoExpiredError = () => (
     <div className="bg-gradient-to-br from-red-50 to-orange-50 border-2 border-red-200 rounded-xl flex items-center justify-center h-full">
       <div className="text-center p-4">
@@ -590,8 +625,8 @@ export default function AIGenerator() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {/* Video Asset */}
                       <div className="aspect-[9/16] bg-gradient-to-b from-yellow-200 to-orange-200 rounded-xl flex items-center justify-center relative overflow-hidden">
-                        {videoError && content?.videoAssets && content.videoAssets.length > 0 ? (
-                          <VideoExpiredError />
+                        {(videoError && content?.videoAssets && content.videoAssets.length > 0) || content?.videoError ? (
+                          <VideoHostingError />
                         ) : content?.videoAssets && content.videoAssets.length > 0 ? 
                           renderVideo(content.videoAssets[0], "w-full h-full object-cover rounded-xl")
                         : campaign.campaignType === 'video' ? (
@@ -750,7 +785,9 @@ export default function AIGenerator() {
                   <CardContent>
                     <div className="bg-black rounded-2xl p-4 max-w-sm mx-auto">
                       <div className="aspect-[9/16] bg-gradient-to-b from-yellow-200 to-orange-200 rounded-xl relative overflow-hidden">
-                        {content?.videoAssets && content.videoAssets.length > 0 ? 
+                        {(videoError && content?.videoAssets && content.videoAssets.length > 0) || content?.videoError ? (
+                          <VideoHostingError />
+                        ) : content?.videoAssets && content.videoAssets.length > 0 ? 
                           renderVideo(content.videoAssets[0], "w-full h-full object-cover rounded-xl")
                         : content?.imageAssets && content.imageAssets.length > 0 ? (
                           <img 

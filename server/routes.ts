@@ -661,24 +661,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
             metadata: { type: 'campaign_video' }
           });
 
-          // Generate actual video content
-          const videoAssets = await aiService.generateAdVideos(
-            `${campaign.brief} for ${campaign.platform} social media`,
-            "modern advertising"
-          );
-          generatedContent.videoAssets = videoAssets;
-          
-          // Store video assets
-          for (const videoUrl of videoAssets || []) {
-            const asset = await storage.createAsset({
-              campaignId: id,
-              userId: req.user!.id,
-              type: 'video',
-              provider: 'gemini-veo',
-              url: videoUrl,
-              metadata: { generatedAt: new Date().toISOString() }
-            });
-            assetIds.push(asset.id);
+          // Generate actual video content with error handling
+          try {
+            const videoAssets = await aiService.generateAdVideos(
+              `${campaign.brief} for ${campaign.platform} social media`,
+              "modern advertising"
+            );
+            generatedContent.videoAssets = videoAssets;
+            
+            // Store video assets
+            for (const videoUrl of videoAssets || []) {
+              const asset = await storage.createAsset({
+                campaignId: id,
+                userId: req.user!.id,
+                type: 'video',
+                provider: 'gemini-veo',
+                url: videoUrl,
+                metadata: { generatedAt: new Date().toISOString() }
+              });
+              assetIds.push(asset.id);
+            }
+          } catch (videoError) {
+            console.warn('⚠️ Video generation failed, continuing without videos:', videoError);
+            console.log('💡 Campaign will have text and images only. User can try video regeneration later.');
+            generatedContent.videoAssets = [];
+            // Add user-friendly error message to content
+            generatedContent.videoError = 'Video generation temporarily unavailable. Please try regenerating video later.';
           }
         }
         
@@ -2244,26 +2252,46 @@ ${campaign.brief}`;
       console.log('🎬 Regenerating video with description:', videoDescription);
 
       // Generate new video with enhanced error handling
-      const newVideoAssets = await aiService.generateAdVideos(videoDescription, "modern advertising");
-      
-      if (newVideoAssets && newVideoAssets.length > 0) {
-        // Update the campaign with new video URLs
+      try {
+        const newVideoAssets = await aiService.generateAdVideos(videoDescription, "modern advertising");
+        
+        if (newVideoAssets && newVideoAssets.length > 0) {
+          // Update the campaign with new video URLs
+          const updatedContent = {
+            ...content,
+            videoAssets: newVideoAssets,
+            lastVideoRegeneration: new Date().toISOString(),
+            videoError: undefined // Clear any previous video error
+          };
+
+          await storage.updateCampaign(campaignId, { generatedContent: updatedContent }, req.user!.id);
+
+          console.log('✅ Video regenerated successfully:', newVideoAssets);
+          res.json({
+            message: 'Video regenerated successfully!',
+            videoAssets: newVideoAssets,
+            note: 'Videos are now stored locally and will not expire'
+          });
+        } else {
+          res.status(500).json({ message: "No video assets were generated" });
+        }
+      } catch (videoError) {
+        console.error('⚠️ Video regeneration failed due to hosting issues:', videoError);
+        
+        // Update campaign with error message instead of failing completely
         const updatedContent = {
           ...content,
-          videoAssets: newVideoAssets,
+          videoError: 'Video regeneration temporarily unavailable due to hosting issues. Please try again later.',
           lastVideoRegeneration: new Date().toISOString()
         };
 
         await storage.updateCampaign(campaignId, { generatedContent: updatedContent }, req.user!.id);
 
-        console.log('✅ Video regenerated successfully:', newVideoAssets);
-        res.json({
-          message: 'Video regenerated successfully!',
-          videoAssets: newVideoAssets,
-          note: 'Videos are now stored locally and will not expire'
+        res.status(500).json({ 
+          message: "Video hosting unavailable",
+          error: "Unable to store video permanently. Please try again later.",
+          note: "Your campaign text and images are still available."
         });
-      } else {
-        res.status(500).json({ message: "Failed to regenerate video" });
       }
 
     } catch (error) {

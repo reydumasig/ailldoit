@@ -1,0 +1,24 @@
+ai-generator.tsx:272 Rendering video with URL: https://generativelanguage.googleapis.com/v1beta/files/3341ucepuazn:download?alt=media
+queryClient.ts:6 🔐 Getting auth headers, current user: OKLksdIAzYZD6X2KyxFbUWP8MCJ3
+queryClient.ts:11 ✅ Firebase ID token obtained: eyJhbGciOiJSUzI1NiIs...
+ai-generator.tsx:287 Video failed to load: https://generativelanguage.googleapis.com/v1beta/files/3341ucepuazn:download?alt=media
+onError @ ai-generator.tsx:287Understand this error
+ai-generator.tsx:43 🧭 AI Generator - Campaign ID from URL: 59
+ai-generator.tsx:163 📊 Campaign query result: Object
+ai-generator.tsx:272 Rendering video with URL: https://generativelanguage.googleapis.com/v1beta/files/3341ucepuazn:download?alt=media
+ai-generator.tsx:43 🧭 AI Generator - Campaign ID from URL: 59
+ai-generator.tsx:163 📊 Campaign query result: Object
+2ai-generator.tsx:272 Rendering video with URL: https://generativelanguage.googleapis.com/v1beta/files/3341ucepuazn:download?alt=media
+ai-generator.tsx:287 Video failed to load: https://generativelanguage.googleapis.com/v1beta/files/3341ucepuazn:download?alt=media
+onError @ ai-generator.tsx:287Understand this error
+ai-generator.tsx:43 🧭 AI Generator - Campaign ID from URL: 59
+ai-generator.tsx:163 📊 Campaign query result: Object
+ai-generator.tsx:272 Rendering video with URL: https://generativelanguage.googleapis.com/v1beta/files/3341ucepuazn:download?alt=media
+ai-generator.tsx:43 🧭 AI Generator - Campaign ID from URL: 59
+ai-generator.tsx:163 📊 Campaign query result: Object
+2ai-generator.tsx:272 Rendering video with URL: https://generativelanguage.googleapis.com/v1beta/files/3341ucepuazn:download?alt=media
+queryClient.ts:6 🔐 Getting auth headers, current user: OKLksdIAzYZD6X2KyxFbUWP8MCJ3
+queryClient.ts:11 ✅ Firebase ID token obtained: eyJhbGciOiJSUzI1NiIs...
+ai-generator.tsx:43 🧭 AI Generator - Campaign ID from URL: 59
+ai-generator.tsx:163 📊 Campaign query result: Objectcampaign: {id: 59, userId: '87439f09-8b35-450d-b840-230558037a9a', name: 'Seiko Mo To', description: 'Seiko Mo To - tiktok campaign', platform: 'tiktok', …}error: nullisLoading: falseisValidCampaignId: true[[Prototype]]: Object
+2ai-generator.tsx:272 Rendering video with URL: https://generativelanguage.googleapis.com/v1beta/files/3341ucepuazn:download?alt=media

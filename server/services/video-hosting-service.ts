@@ -70,8 +70,9 @@ export class VideoHostingService {
       try {
         return await this.uploadToLocalStorage(videoUrl, finalFilename);
       } catch (localError) {
+        console.error('❌ Local storage fallback failed:', localError);
         console.error('❌ All video hosting methods failed. Not storing expired URL.');
-        throw new Error(`Video hosting failed: Unable to store video permanently. Original error: ${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(`Video hosting failed: Unable to store video permanently. All download attempts failed due to API permissions. Original error: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
   }
@@ -181,9 +182,7 @@ export class VideoHostingService {
       return localVideoUrl;
     } catch (error) {
       console.error('❌ Local storage fallback failed:', error);
-      // Return original URL as last resort (will expire)
-      console.warn('🚨 Using original URL - may expire soon:', videoUrl);
-      return videoUrl;
+      throw new Error(`Failed to store video locally: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
