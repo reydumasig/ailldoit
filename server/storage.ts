@@ -45,7 +45,9 @@ export interface IStorage {
   
   // Asset methods
   createAsset(asset: InsertAsset): Promise<Asset>;
+  getAssets(campaignId: number): Promise<Asset[]>; // Alias for getAssetsByCampaign
   getAssetsByCampaign(campaignId: number): Promise<Asset[]>;
+  updateAsset(assetId: number, updates: Partial<Asset>): Promise<Asset | undefined>;
   deleteAssetsByUser(userId: string): Promise<boolean>;
   
   // Learning and performance methods
@@ -315,12 +317,25 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
+  async getAssets(campaignId: number): Promise<Asset[]> {
+    return this.getAssetsByCampaign(campaignId);
+  }
+
   async getAssetsByCampaign(campaignId: number): Promise<Asset[]> {
     return await db
       .select()
       .from(assets)
       .where(eq(assets.campaignId, campaignId))
       .orderBy(desc(assets.createdAt));
+  }
+
+  async updateAsset(assetId: number, updates: Partial<Asset>): Promise<Asset | undefined> {
+    const [updated] = await db
+      .update(assets)
+      .set(updates)
+      .where(eq(assets.id, assetId))
+      .returning();
+    return updated;
   }
 
   async clearCampaignAssets(campaignId: number): Promise<void> {

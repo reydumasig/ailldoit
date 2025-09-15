@@ -37,6 +37,7 @@ export default function AIGenerator() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [videoError, setVideoError] = useState(false);
   
   const campaignId = location.split("/")[2];
   console.log('🧭 AI Generator - Campaign ID from URL:', campaignId);
@@ -124,6 +125,49 @@ export default function AIGenerator() {
       } else {
         toast({
           title: "Generation failed",
+          description: error.message,
+          variant: "destructive",
+        });
+      }
+    },
+  });
+
+  // Video regeneration mutation
+  const regenerateVideo = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await apiRequest("POST", `/api/campaigns/${id}/regenerate-video`);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Video regeneration failed');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      // Reset video error state when regeneration starts
+      setVideoError(false);
+      toast({
+        title: "Video regeneration started",
+        description: "A fresh video is being generated for your campaign...",
+      });
+      // Refetch campaign data periodically to check for updates
+      const interval = setInterval(() => {
+        queryClient.invalidateQueries({ queryKey: [`/api/campaigns/${campaignId}`] });
+      }, 2000);
+      
+      // Clear interval after 10 seconds
+      setTimeout(() => clearInterval(interval), 10000);
+    },
+    onError: (error: any) => {
+      if (error.message.includes('Insufficient credits')) {
+        toast({
+          title: "Insufficient Credits",
+          description: "You need more credits to regenerate video. Please upgrade your plan.",
+          variant: "destructive",
+        });
+        setShowUpgradeModal(true);
+      } else {
+        toast({
+          title: "Video regeneration failed",
           description: error.message,
           variant: "destructive",
         });
@@ -226,6 +270,11 @@ export default function AIGenerator() {
   const renderVideo = (videoUrl: string, className: string, controls: boolean = true) => {
     console.log('Rendering video with URL:', videoUrl);
     
+    // Reset video error when a new video is loaded
+    if (videoError) {
+      setVideoError(false);
+    }
+    
     return (
       <video 
         key={videoUrl} // Force re-render when URL changes
@@ -235,31 +284,49 @@ export default function AIGenerator() {
         preload="metadata"
         onError={(e) => {
           console.error('Video failed to load:', videoUrl);
-          // Replace video element with error message only on actual failure
-          const videoElement = e.currentTarget;
-          const container = videoElement.parentElement;
-          if (container) {
-            container.innerHTML = `
-              <div class="bg-gradient-to-br from-red-50 to-orange-50 border-2 border-red-200 rounded-xl flex items-center justify-center h-full">
-                <div class="text-center p-4">
-                  <div class="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-2">
-                    <svg class="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
-                    </svg>
-                  </div>
-                  <p class="text-sm text-red-600 font-medium">Video Expired</p>
-                  <p class="text-xs text-muted-foreground mt-1">Click "Regenerate Content" for fresh video</p>
-                </div>
-              </div>
-            `;
-          }
+          setVideoError(true);
         }}
         onCanPlay={() => {
           console.log('Video can play:', videoUrl);
+          setVideoError(false);
         }}
       />
     );
   };
+
+  // Video expired error component
+  const VideoExpiredError = () => (
+    <div className="bg-gradient-to-br from-red-50 to-orange-50 border-2 border-red-200 rounded-xl flex items-center justify-center h-full">
+      <div className="text-center p-4">
+        <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-3">
+          <RefreshCw className="w-6 h-6 text-red-600" />
+        </div>
+        <p className="text-sm text-red-600 font-medium mb-2">Video Expired</p>
+        <p className="text-xs text-muted-foreground mb-4">
+          The video link has expired and needs to be regenerated
+        </p>
+        <Button
+          data-testid="button-regenerate-video"
+          size="sm"
+          onClick={() => regenerateVideo.mutate(campaignId)}
+          disabled={regenerateVideo.isPending}
+          className="bg-red-600 hover:bg-red-700 text-white"
+        >
+          {regenerateVideo.isPending ? (
+            <>
+              <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin mr-2" />
+              Regenerating...
+            </>
+          ) : (
+            <>
+              <RefreshCw className="w-3 h-3 mr-2" />
+              Regenerate Video
+            </>
+          )}
+        </Button>
+      </div>
+    </div>
+  );
 
   if (isLoading) {
     return (
@@ -522,7 +589,9 @@ export default function AIGenerator() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {/* Video Asset */}
                       <div className="aspect-[9/16] bg-gradient-to-b from-yellow-200 to-orange-200 rounded-xl flex items-center justify-center relative overflow-hidden">
-                        {content?.videoAssets && content.videoAssets.length > 0 ? 
+                        {videoError && content?.videoAssets && content.videoAssets.length > 0 ? (
+                          <VideoExpiredError />
+                        ) : content?.videoAssets && content.videoAssets.length > 0 ? 
                           renderVideo(content.videoAssets[0], "w-full h-full object-cover rounded-xl")
                         : campaign.campaignType === 'video' ? (
                           <div className="text-center p-4">
@@ -539,7 +608,7 @@ export default function AIGenerator() {
                             className="w-full h-full object-cover rounded-xl"
                           />
                         )}
-                        {content?.videoAssets && content.videoAssets.length > 0 && (
+                        {content?.videoAssets && content.videoAssets.length > 0 && !videoError && (
                           <>
                             <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent pointer-events-none" />
                             <div className="absolute bottom-4 left-4 right-4 pointer-events-none">

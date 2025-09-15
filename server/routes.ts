@@ -453,6 +453,80 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Regenerate expired video for specific campaign (protected)
+  app.post("/api/campaigns/:id/regenerate-video", authenticateToken, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      
+      // Validate campaign ID
+      if (isNaN(id) || id <= 0) {
+        console.error('❌ Invalid campaign ID for video regeneration:', req.params.id);
+        return res.status(400).json({ message: "Invalid campaign ID" });
+      }
+      
+      const campaign = await storage.getCampaign(id, req.user!.id);
+      if (!campaign) {
+        return res.status(404).json({ message: "Campaign not found" });
+      }
+
+      console.log(`🎬 Regenerating video for campaign: ${campaign.name}`);
+      
+      // Import AI service
+      const { aiService } = await import("./services/ai-service");
+      
+      // Generate new video using our optimized hierarchy (Veo 3 -> Veo 2 -> Replicate)
+      const videoPrompt = `Professional advertising video for ${campaign.name}: ${campaign.brief}`;
+      
+      console.log(`📝 Video prompt: "${videoPrompt}"`);
+      
+      const videoUrls = await aiService.generateAdVideos(
+        videoPrompt, 
+        'modern advertising style'
+      );
+      
+      if (videoUrls.length > 0) {
+        // Find and update existing video asset
+        const assets = await storage.getAssets(id);
+        const videoAsset = assets.find(asset => asset.type === 'video');
+        
+        if (videoAsset) {
+          await storage.updateAsset(videoAsset.id, {
+            url: videoUrls[0],
+            provider: 'gemini-veo-regenerated',
+            metadata: { 
+              generatedAt: new Date().toISOString(),
+              regenerated: true,
+              reason: 'Fixed expired external video URL'
+            }
+          });
+          
+          // Update campaign content with new video
+          if (campaign.generatedContent) {
+            const content = campaign.generatedContent as any;
+            if (content.videoAssets) {
+              content.videoAssets[0] = videoUrls[0];
+              await storage.updateCampaign(id, { generatedContent: content }, req.user!.id);
+            }
+          }
+          
+          console.log('✅ Video regenerated successfully:', videoUrls[0]);
+          res.json({ 
+            message: "Video regenerated successfully",
+            newVideoUrl: videoUrls[0]
+          });
+        } else {
+          res.status(404).json({ message: "No video asset found for this campaign" });
+        }
+      } else {
+        console.log('❌ No video URLs generated');
+        res.status(500).json({ message: "Failed to generate new video" });
+      }
+    } catch (error) {
+      console.error('Video regeneration error:', error);
+      res.status(500).json({ message: "Failed to regenerate video" });
+    }
+  });
+
   // Generate AI content for campaign (protected)
   app.post("/api/campaigns/:id/generate", authenticateToken, async (req, res) => {
     try {
