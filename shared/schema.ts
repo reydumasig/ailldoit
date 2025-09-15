@@ -69,7 +69,12 @@ export const assets = pgTable("assets", {
   userId: varchar("user_id").references(() => users.id).notNull(),
   type: text("type").notNull(), // 'image', 'video'
   provider: text("provider").notNull(), // 'gemini-imagen', 'gemini-veo', 'replicate-sdxl', 'openai-dalle'
-  url: text("url").notNull(), // Storage URL (Firebase Storage, AWS S3, etc.)
+  url: text("url").notNull(), // Original/temporary URL from AI provider
+  // Video hosting fields for permanent storage
+  hostedUrl: text("hosted_url"), // Permanent URL after hosting (Object Storage, Firebase, etc.)
+  storageProvider: text("storage_provider"), // 'object-storage', 'firebase', 'local'
+  hostingStatus: text("hosting_status").default("pending"), // 'pending', 'hosted', 'failed'
+  hostingError: text("hosting_error"), // Error message if hosting failed
   metadata: json("metadata"), // Provider-specific metadata, dimensions, duration, etc.
   createdAt: timestamp("created_at").defaultNow(),
 });

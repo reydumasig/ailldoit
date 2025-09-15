@@ -455,9 +455,9 @@ export class AIService {
         const url = videoUrls[i];
         try {
           const fileName = `replicate_${Date.now()}_${i}.mp4`;
-          const hostedUrl = await videoHostingService.uploadVideo(url, fileName);
-          console.log(`✅ Video ${i + 1} hosted successfully: ${hostedUrl}`);
-          hostedUrls.push(hostedUrl);
+          const hostingResult = await videoHostingService.uploadVideo(url, fileName);
+          console.log(`✅ Video ${i + 1} hosted successfully: ${hostingResult.url} (${hostingResult.provider})`);
+          hostedUrls.push(hostingResult.url);
         } catch (error) {
           console.error(`❌ Failed to host video ${i + 1}:`, error);
           console.warn('Using original URL as fallback');
@@ -530,10 +530,10 @@ export class AIService {
             throw new Error('No video URI available for hosting');
           }
           
-          const hostedUrl = await videoHostingService.uploadVideo(videoUri, fileName);
+          const hostingResult = await videoHostingService.uploadVideo(videoUri, fileName);
           console.log('✅ Veo 2 video hosted successfully!');
-          console.log('🔗 Hosted URL:', hostedUrl);
-          return [hostedUrl];
+          console.log('🔗 Hosted URL:', hostingResult.url, '(Provider:', hostingResult.provider + ')');
+          return [hostingResult.url];
         } catch (hostingError) {
           console.error('❌ Critical: Video hosting failed for Veo 2:', hostingError);
           console.error('🎬 Original video URI:', video.video?.uri);
@@ -614,10 +614,10 @@ export class AIService {
             throw new Error('No video URI available for hosting');
           }
           
-          const hostedUrl = await videoHostingService.uploadVideo(videoUri, fileName);
+          const hostingResult = await videoHostingService.uploadVideo(videoUri, fileName);
           console.log('✅ Veo 3 video hosted successfully!');
-          console.log('🔗 Hosted URL:', hostedUrl);
-          return [hostedUrl];
+          console.log('🔗 Hosted URL:', hostingResult.url, '(Provider:', hostingResult.provider + ')');
+          return [hostingResult.url];
         } catch (hostingError) {
           console.error('❌ Critical: Video hosting failed for Veo 3:', hostingError);
           console.error('🎬 Original video URI:', video.video?.uri);

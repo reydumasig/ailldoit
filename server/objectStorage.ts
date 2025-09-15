@@ -154,6 +154,69 @@ export class ObjectStorageService {
     });
   }
 
+  // Upload video from buffer to public storage
+  async uploadVideoFromBuffer(buffer: Buffer, filename: string): Promise<string> {
+    const publicPaths = this.getPublicObjectSearchPaths();
+    const publicPath = publicPaths[0]; // Use first public path
+    const fullPath = `${publicPath}/videos/${filename}`;
+    
+    const { bucketName, objectName } = parseObjectPath(fullPath);
+    const bucket = objectStorageClient.bucket(bucketName);
+    const file = bucket.file(objectName);
+    
+    // Upload the buffer with public read permissions
+    await file.save(buffer, {
+      metadata: {
+        contentType: 'video/mp4',
+        cacheControl: 'public, max-age=31536000', // 1 year cache
+      },
+      public: true, // Make file publicly accessible
+    });
+    
+    // Return the public URL
+    return `https://storage.googleapis.com/${bucketName}/${objectName}`;
+  }
+
+  // Download video from URL with retries
+  async downloadVideoFromUrl(videoUrl: string, maxRetries: number = 3): Promise<Buffer> {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`📥 Downloading video attempt ${attempt}/${maxRetries}: ${videoUrl}`);
+        
+        const response = await fetch(videoUrl, {
+          method: 'GET',
+          headers: {
+            'User-Agent': 'Ailldoit-VideoHosting/1.0'
+          },
+          signal: AbortSignal.timeout(30000) // 30 second timeout
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const buffer = Buffer.from(await response.arrayBuffer());
+        console.log(`✅ Video downloaded successfully: ${buffer.length} bytes`);
+        return buffer;
+        
+      } catch (error) {
+        console.error(`❌ Download attempt ${attempt} failed:`, error);
+        if (attempt === maxRetries) {
+          throw new Error(`Video download failed after ${maxRetries} attempts: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        // Wait before retry (exponential backoff)
+        await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+      }
+    }
+    throw new Error('Download failed');
+  }
+
+  // Upload video from URL to public storage
+  async uploadVideoFromUrl(videoUrl: string, filename: string): Promise<string> {
+    const buffer = await this.downloadVideoFromUrl(videoUrl, 3);
+    return this.uploadVideoFromBuffer(buffer, filename);
+  }
+
   // Gets the object entity file from the object path.
   async getObjectEntityFile(objectPath: string): Promise<File> {
     if (!objectPath.startsWith("/objects/")) {

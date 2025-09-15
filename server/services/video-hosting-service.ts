@@ -1,13 +1,16 @@
-// Video hosting service that prioritizes Firebase Storage over local storage
+// Video hosting service with hierarchy: Object Storage → Firebase → Local
 import { firebaseStorage } from './firebase-storage';
+import { ObjectStorageService } from '../objectStorage';
 import fs from 'fs';
 import path from 'path';
 
 export class VideoHostingService {
+  private objectStorage = new ObjectStorageService();
+
   /**
-   * Upload video from URL to Firebase Storage with immediate download and local fallback
+   * Upload video with hierarchy: Object Storage → Firebase → Local
    */
-  async uploadVideo(videoUrl: string, filename?: string): Promise<string> {
+  async uploadVideo(videoUrl: string, filename?: string): Promise<{ url: string, provider: string }> {
     const finalFilename = filename || `video_${Date.now()}.mp4`;
     
     console.log(`🎬 Video hosting initiated for: ${videoUrl}`);
@@ -19,56 +22,89 @@ export class VideoHostingService {
     try {
       console.log('⚡ Attempting immediate video download...');
       
-      if (firebaseStorage.isConfigured()) {
-        // Use Firebase Storage's immediate download method
-        videoBuffer = await firebaseStorage.downloadVideoImmediately(videoUrl, 3);
-        console.log('✅ Video downloaded immediately via Firebase Storage');
-      } else {
-        console.log('⚠️ Firebase not configured, using direct download...');
-        videoBuffer = await this.downloadVideoDirectly(videoUrl, 3);
-        console.log('✅ Video downloaded directly');
+      // Try Object Storage download first (most reliable)
+      try {
+        videoBuffer = await this.objectStorage.downloadVideoFromUrl(videoUrl, 3);
+        console.log('✅ Video downloaded via Object Storage');
+      } catch (objectError) {
+        console.warn('⚠️ Object Storage download failed, trying Firebase...');
+        if (firebaseStorage.isConfigured()) {
+          videoBuffer = await firebaseStorage.downloadVideoImmediately(videoUrl, 3);
+          console.log('✅ Video downloaded via Firebase Storage');
+        } else {
+          console.warn('⚠️ Firebase not configured, using direct download...');
+          videoBuffer = await this.downloadVideoDirectly(videoUrl, 3);
+          console.log('✅ Video downloaded directly');
+        }
       }
     } catch (downloadError) {
       console.error('❌ Immediate download failed:', downloadError);
       console.warn('🔄 Attempting traditional upload method as fallback...');
     }
     
-    // If we have the video buffer, upload it to permanent storage
+    // If we have the video buffer, upload it to permanent storage with hierarchy
     if (videoBuffer) {
+      // Try Object Storage first (primary)
       try {
-        if (firebaseStorage.isConfigured()) {
-          console.log('📤 Uploading video buffer to Firebase Storage...');
-          const firebaseUrl = await firebaseStorage.uploadVideoFromBuffer(videoBuffer, finalFilename);
-          console.log('✅ Video buffer uploaded to Firebase Storage successfully');
-          return firebaseUrl;
-        } else {
-          console.warn('⚠️ Firebase Storage not configured, storing locally...');
-          return await this.uploadBufferToLocalStorage(videoBuffer, finalFilename);
+        console.log('📤 Uploading video buffer to Object Storage...');
+        const objectUrl = await this.objectStorage.uploadVideoFromBuffer(videoBuffer, finalFilename);
+        console.log('✅ Video buffer uploaded to Object Storage successfully');
+        return { url: objectUrl, provider: 'object-storage' };
+      } catch (objectError) {
+        console.error('❌ Object Storage upload failed:', objectError);
+        console.warn('🔄 Falling back to Firebase Storage...');
+        
+        // Try Firebase Storage (secondary)
+        try {
+          if (firebaseStorage.isConfigured()) {
+            console.log('📤 Uploading video buffer to Firebase Storage...');
+            const firebaseUrl = await firebaseStorage.uploadVideoFromBuffer(videoBuffer, finalFilename);
+            console.log('✅ Video buffer uploaded to Firebase Storage successfully');
+            return { url: firebaseUrl, provider: 'firebase' };
+          } else {
+            console.warn('⚠️ Firebase Storage not configured, falling back to local...');
+            throw new Error('Firebase not configured');
+          }
+        } catch (firebaseError) {
+          console.error('❌ Firebase upload failed:', firebaseError);
+          console.warn('🔄 Final fallback to local storage...');
+          const localUrl = await this.uploadBufferToLocalStorage(videoBuffer, finalFilename);
+          return { url: localUrl, provider: 'local' };
         }
-      } catch (uploadError) {
-        console.error('❌ Buffer upload failed:', uploadError);
-        console.warn('🔄 Falling back to local storage...');
-        return await this.uploadBufferToLocalStorage(videoBuffer, finalFilename);
       }
     }
     
     // Fallback to traditional method (less likely to work with expired URLs)
     try {
       console.warn('🚨 Using traditional upload method (URL may be expired)');
-      if (firebaseStorage.isConfigured()) {
-        console.log('📤 Attempting Firebase Storage upload...');
-        const firebaseUrl = await firebaseStorage.uploadVideoFromUrl(videoUrl, finalFilename);
-        console.log('✅ Video uploaded to Firebase Storage successfully');
-        return firebaseUrl;
-      } else {
-        console.warn('⚠️ Firebase Storage not configured, falling back to local storage');
-        return await this.uploadToLocalStorage(videoUrl, finalFilename);
+      
+      // Try Object Storage traditional upload
+      try {
+        console.log('📤 Attempting Object Storage traditional upload...');
+        const objectUrl = await this.objectStorage.uploadVideoFromUrl(videoUrl, finalFilename);
+        console.log('✅ Video uploaded to Object Storage successfully');
+        return { url: objectUrl, provider: 'object-storage' };
+      } catch (objectError) {
+        console.error('❌ Object Storage traditional upload failed:', objectError);
+        
+        // Try Firebase Storage traditional upload
+        if (firebaseStorage.isConfigured()) {
+          console.log('📤 Attempting Firebase Storage upload...');
+          const firebaseUrl = await firebaseStorage.uploadVideoFromUrl(videoUrl, finalFilename);
+          console.log('✅ Video uploaded to Firebase Storage successfully');
+          return { url: firebaseUrl, provider: 'firebase' };
+        } else {
+          console.warn('⚠️ Firebase Storage not configured, falling back to local storage');
+          const localUrl = await this.uploadToLocalStorage(videoUrl, finalFilename);
+          return { url: localUrl, provider: 'local' };
+        }
       }
     } catch (error) {
       console.error('❌ Traditional upload failed:', error);
       console.warn('🔄 Final fallback to local storage...');
       try {
-        return await this.uploadToLocalStorage(videoUrl, finalFilename);
+        const localUrl = await this.uploadToLocalStorage(videoUrl, finalFilename);
+        return { url: localUrl, provider: 'local' };
       } catch (localError) {
         console.error('❌ Local storage fallback failed:', localError);
         console.error('❌ All video hosting methods failed. Not storing expired URL.');

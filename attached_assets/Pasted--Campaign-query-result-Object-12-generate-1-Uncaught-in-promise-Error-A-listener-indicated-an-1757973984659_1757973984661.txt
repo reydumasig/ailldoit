@@ -1,0 +1,55 @@
+📊 Campaign query result: 
+Object
+12
+generate:1 Uncaught (in promise) Error: A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received
+ai-generator.tsx:44 🧭 AI Generator - Campaign ID from URL: 59
+ai-generator.tsx:164 📊 Campaign query result: 
+Object
+queryClient.ts:6 🔐 Getting auth headers, current user: OKLksdIAzYZD6X2KyxFbUWP8MCJ3
+queryClient.ts:11 ✅ Firebase ID token obtained: eyJhbGciOiJSUzI1NiIs...
+queryClient.ts:6 🔐 Getting auth headers, current user: OKLksdIAzYZD6X2KyxFbUWP8MCJ3
+queryClient.ts:11 ✅ Firebase ID token obtained: eyJhbGciOiJSUzI1NiIs...
+queryClient.ts:6 🔐 Getting auth headers, current user: OKLksdIAzYZD6X2KyxFbUWP8MCJ3
+queryClient.ts:11 ✅ Firebase ID token obtained: eyJhbGciOiJSUzI1NiIs...
+ai-generator.tsx:44 🧭 AI Generator - Campaign ID from URL: 59
+ai-generator.tsx:164 📊 Campaign query result: 
+Object
+campaign
+: 
+{id: 59, userId: '87439f09-8b35-450d-b840-230558037a9a', name: 'Seiko Mo To', description: 'Seiko Mo To - tiktok campaign', platform: 'tiktok', …}
+error
+: 
+null
+isLoading
+: 
+false
+isValidCampaignId
+: 
+true
+[[Prototype]]
+: 
+Object
+2
+ai-generator.tsx:273 Rendering video with URL: https://generativelanguage.googleapis.com/v1beta/files/pabgpcds6k7d:download?alt=media
+queryClient.ts:6 🔐 Getting auth headers, current user: OKLksdIAzYZD6X2KyxFbUWP8MCJ3
+queryClient.ts:11 ✅ Firebase ID token obtained: eyJhbGciOiJSUzI1NiIs...
+ai-generator.tsx:288 Video failed to load: https://generativelanguage.googleapis.com/v1beta/files/pabgpcds6k7d:download?alt=media
+onError	@	ai-generator.tsx:288
+ai-generator.tsx:44 🧭 AI Generator - Campaign ID from URL: 59
+ai-generator.tsx:164 📊 Campaign query result: 
+Object
+queryClient.ts:6 🔐 Getting auth headers, current user: OKLksdIAzYZD6X2KyxFbUWP8MCJ3
+queryClient.ts:11 ✅ Firebase ID token obtained: eyJhbGciOiJSUzI1NiIs...
+ai-generator.tsx:44 🧭 AI Generator - Campaign ID from URL: 59
+ai-generator.tsx:164 📊 Campaign query result: 
+Object
+﻿
+
+Ask AI about more insights
+You can now ask Gemini about more performance insights: image delivery, legacy JavaScript, duplicate JavaScript, and modern HTTP.
+
+Emulate the 'Save-Data' header
+In 'Network conditions', you can now emulate the 'Save-Data' request header that indicates the client's preference for reduced data usage.
+
+Debug complex CSS values easier
+See also, from version 138: The Elements > Styles tab can now show you a tooltip with a breakdown of the definition chain and step-by-step evaluations of complex CSS variables, so you can find bugs quicker and gain a deeper understanding of how a value is computed.
