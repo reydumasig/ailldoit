@@ -4,9 +4,9 @@ import { getStorage } from 'firebase/storage';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  authDomain: "ailldoit-6d0e0.firebaseapp.com",
+  projectId: "ailldoit-6d0e0",
+  storageBucket: "ailldoit-6d0e0.appspot.com",
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
@@ -34,11 +34,11 @@ if (missingFields.length > 0) {
   });
 } else {
   console.log('✅ Firebase configuration loaded successfully');
-  console.log('🔍 Current Firebase Project ID:', import.meta.env.VITE_FIREBASE_PROJECT_ID);
+  console.log('🔍 Current Firebase Project ID:', firebaseConfig.projectId);
   console.log('🔍 Full Firebase Config:', {
-    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET
+    projectId: firebaseConfig.projectId,
+    authDomain: firebaseConfig.authDomain,
+    storageBucket: firebaseConfig.storageBucket
   });
 }
 

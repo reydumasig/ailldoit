@@ -31,6 +31,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   }
 
+  // Debug environment variables
+  app.get('/api/debug/env', (req, res) => {
+    res.json({
+      serverEnvVars: {
+        VITE_FIREBASE_PROJECT_ID: process.env.VITE_FIREBASE_PROJECT_ID,
+        VITE_FIREBASE_AUTH_DOMAIN: process.env.VITE_FIREBASE_AUTH_DOMAIN,
+        VITE_FIREBASE_STORAGE_BUCKET: process.env.VITE_FIREBASE_STORAGE_BUCKET,
+        NODE_ENV: process.env.NODE_ENV
+      }
+    });
+  });
+
   // Simple test route for OAuth
   app.get('/api/test-meta-oauth', async (req, res) => {
     try {
