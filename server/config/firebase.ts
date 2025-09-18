@@ -5,15 +5,33 @@ import { getStorage } from 'firebase-admin/storage';
 // Initialize Firebase Admin SDK
 const initializeFirebase = () => {
   if (getApps().length === 0) {
-    const app = initializeApp({
-      credential: cert({
-        projectId: process.env.FIREBASE_PROJECT_ID,
-        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-      }),
-      storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
-    });
-    return app;
+    // Try new environment variable first, then fallback to existing one
+    const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_NEW || process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+    
+    if (!serviceAccount) {
+      console.error('Firebase Admin initialization failed due to missing or invalid FIREBASE_SERVICE_ACCOUNT_KEY_NEW environment variable');
+      throw new Error('Firebase service account configuration missing');
+    }
+    
+    try {
+      const serviceAccountKey = JSON.parse(serviceAccount);
+      
+      // Validate required fields
+      if (!serviceAccountKey.project_id) {
+        throw new Error('Service account JSON is missing the required project_id property');
+      }
+      
+      const app = initializeApp({
+        credential: cert(serviceAccountKey),
+        storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET || `${serviceAccountKey.project_id}.appspot.com`,
+      });
+      console.log('✅ Firebase Admin SDK initialized successfully');
+      return app;
+    } catch (parseError) {
+      console.error('Firebase Admin initialization failed due to missing or invalid FIREBASE_SERVICE_ACCOUNT_KEY_NEW environment variable');
+      console.error('Failed to parse Firebase service account:', parseError);
+      throw parseError;
+    }
   }
   return getApps()[0];
 };

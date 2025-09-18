@@ -1,28 +1,23 @@
-import { initializeApp, cert, ServiceAccount } from 'firebase-admin/app';
 import { getStorage } from 'firebase-admin/storage';
+import { getApps } from 'firebase-admin/app';
 import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import path from 'path';
 
-// Initialize Firebase Admin if not already initialized
-import { getApps } from 'firebase-admin/app';
-
+// Use existing Firebase Admin app instead of creating a new one
 let firebaseApp: any;
 try {
-  const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY || '{}') as ServiceAccount;
-  
-  // Check if any Firebase apps are already initialized
   const existingApps = getApps();
-  if (existingApps.length === 0) {
-    firebaseApp = initializeApp({
-      credential: cert(serviceAccount),
-      storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET
-    });
-  } else {
+  if (existingApps.length > 0) {
     firebaseApp = existingApps[0]; // Use the existing app
+    console.log('✅ Firebase Storage using existing Firebase Admin app');
+  } else {
+    console.error('Firebase Storage initialization failed because Firebase Admin app wasn\'t properly initialized');
+    console.error('No existing Firebase Admin apps found - ensure Firebase Admin is initialized first');
   }
 } catch (error) {
-  console.error('Firebase Admin initialization failed:', error);
+  console.error('Firebase Storage initialization failed because Firebase Admin app wasn\'t properly initialized');
+  console.error('Firebase Storage initialization error:', error);
 }
 
 export class FirebaseStorageService {
@@ -301,7 +296,8 @@ export class FirebaseStorageService {
    * Check if Firebase Storage is properly configured
    */
   isConfigured(): boolean {
-    return !!this.bucket && !!process.env.FIREBASE_SERVICE_ACCOUNT_KEY && !!process.env.VITE_FIREBASE_STORAGE_BUCKET;
+    const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_NEW || process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+    return !!this.bucket && !!serviceAccountKey && !!process.env.VITE_FIREBASE_STORAGE_BUCKET;
   }
 }
 
