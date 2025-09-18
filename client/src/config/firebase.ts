@@ -2,14 +2,14 @@ import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
 
-// Hybrid Firebase config - correct project IDs with existing API keys
+// Firebase config for ailldoit-6d0e0 project
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY, // Use existing API key from Replit Secrets
-  authDomain: "ailldoit-6d0e0.firebaseapp.com",  // Correct domain for ailldoit-6d0e0
-  projectId: "ailldoit-6d0e0",                   // Correct project ID
-  storageBucket: "ailldoit-6d0e0.appspot.com",  // Correct storage bucket
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID, // Use existing
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,  // Use existing
+  apiKey: "AIzaSyBws685hYqlPxIyzirqyFLOZ4G-D2zwKbY",
+  authDomain: "ailldoit-6d0e0.firebaseapp.com",
+  projectId: "ailldoit-6d0e0",
+  storageBucket: "ailldoit-6d0e0.firebasestorage.app",
+  messagingSenderId: "481184449900",
+  appId: "1:481184449900:web:627e5e0142defac2d95f49",
 };
 
 // Debug logs for hardcoded Firebase config
