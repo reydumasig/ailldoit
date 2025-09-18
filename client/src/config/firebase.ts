@@ -34,6 +34,12 @@ if (missingFields.length > 0) {
   });
 } else {
   console.log('✅ Firebase configuration loaded successfully');
+  console.log('🔍 Current Firebase Project ID:', import.meta.env.VITE_FIREBASE_PROJECT_ID);
+  console.log('🔍 Full Firebase Config:', {
+    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET
+  });
 }
 
 export const app = initializeApp(firebaseConfig);
