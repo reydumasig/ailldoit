@@ -43,4 +43,15 @@ args = "npm run dev"
 waitForPort = 5000
 
 [agent]
-integrations = ["javascript_log_in_with_replit==1.0.0", "javascript_database==1.0.0", "javascript_openai==1.0.0", "javascript_gemini==1.0.0", "javascript_stripe==1.0.0"]
+integrations = [
+  "javascript_log_in_with_replit==1.0.0",
+  "javascript_database==1.0.0",
+  "javascript_openai==1.0.0",
+  "javascript_gemini==1.0.0",
+  "javascript_stripe==1.0.0",
+]
+
+[run.env]
+VITE_FIREBASE_PROJECT_ID = "ailldoit-6d0e0"
+VITE_FIREBASE_AUTH_DOMAIN = "ailldoit-6d0e0.firebaseapp.com"
+VITE_FIREBASE_STORAGE_BUCKET = "ailldoit-6d0e0.appspot.com"
