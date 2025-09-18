@@ -1,0 +1,158 @@
+🔍 Current Firebase Project ID: ailldoit
+firebase.ts:38 🔍 Full Firebase Config: ObjectauthDomain: "ailldoit.firebaseapp.com"projectId: "ailldoit"storageBucket: "ailldoit.firebasestorage.app"[[Prototype]]: Object
+environment.ts:23 🌍 Client Environment: Objecthostname: "d653493a-4e36-452c-a9f2-86dbf84ba0b6-00-2spebdpdnxh9l.janeway.replit.dev"isLiveDomain: falsemode: "development"useTestKeys: true[[Prototype]]: Object
+login.tsx:46 🌐 Current domain: d653493a-4e36-452c-a9f2-86dbf84ba0b6-00-2spebdpdnxh9l.janeway.replit.dev
+login.tsx:47 🔗 Full URL: https://d653493a-4e36-452c-a9f2-86dbf84ba0b6-00-2spebdpdnxh9l.janeway.replit.dev/
+AuthContext.tsx:136 Cross-Origin-Opener-Policy policy would block the window.closed call.
+poll @ firebase_auth.js?v=0c767221:7083
+setTimeout
+poll @ firebase_auth.js?v=0c767221:7098
+setTimeout
+poll @ firebase_auth.js?v=0c767221:7098
+pollUserCancellation @ firebase_auth.js?v=0c767221:7100
+onExecution @ firebase_auth.js?v=0c767221:7056
+await in onExecution
+(anonymous) @ firebase_auth.js?v=0c767221:6908
+await in (anonymous)
+execute @ firebase_auth.js?v=0c767221:6904
+executeNotNull @ firebase_auth.js?v=0c767221:7024
+signInWithPopup @ firebase_auth.js?v=0c767221:6989
+signInWithGoogle @ AuthContext.tsx:136
+handleGoogleSignIn @ login.tsx:49
+callCallback2 @ chunk-RPCDYKBN.js?v=0c767221:3674
+invokeGuardedCallbackDev @ chunk-RPCDYKBN.js?v=0c767221:3699
+invokeGuardedCallback @ chunk-RPCDYKBN.js?v=0c767221:3733
+invokeGuardedCallbackAndCatchFirstError @ chunk-RPCDYKBN.js?v=0c767221:3736
+executeDispatch @ chunk-RPCDYKBN.js?v=0c767221:7014
+processDispatchQueueItemsInOrder @ chunk-RPCDYKBN.js?v=0c767221:7034
+processDispatchQueue @ chunk-RPCDYKBN.js?v=0c767221:7043
+dispatchEventsForPlugins @ chunk-RPCDYKBN.js?v=0c767221:7051
+(anonymous) @ chunk-RPCDYKBN.js?v=0c767221:7174
+batchedUpdates$1 @ chunk-RPCDYKBN.js?v=0c767221:18913
+batchedUpdates @ chunk-RPCDYKBN.js?v=0c767221:3579
+dispatchEventForPluginEventSystem @ chunk-RPCDYKBN.js?v=0c767221:7173
+dispatchEventWithEnableCapturePhaseSelectiveHydrationWithoutDiscreteEventReplay @ chunk-RPCDYKBN.js?v=0c767221:5478
+dispatchEvent @ chunk-RPCDYKBN.js?v=0c767221:5472
+dispatchDiscreteEvent @ chunk-RPCDYKBN.js?v=0c767221:5449Understand this error
+AuthContext.tsx:136 Cross-Origin-Opener-Policy policy would block the window.closed call.
+poll @ firebase_auth.js?v=0c767221:7083
+setTimeout
+poll @ firebase_auth.js?v=0c767221:7098
+setTimeout
+poll @ firebase_auth.js?v=0c767221:7098
+pollUserCancellation @ firebase_auth.js?v=0c767221:7100
+onExecution @ firebase_auth.js?v=0c767221:7056
+await in onExecution
+(anonymous) @ firebase_auth.js?v=0c767221:6908
+await in (anonymous)
+execute @ firebase_auth.js?v=0c767221:6904
+executeNotNull @ firebase_auth.js?v=0c767221:7024
+signInWithPopup @ firebase_auth.js?v=0c767221:6989
+signInWithGoogle @ AuthContext.tsx:136
+handleGoogleSignIn @ login.tsx:49
+callCallback2 @ chunk-RPCDYKBN.js?v=0c767221:3674
+invokeGuardedCallbackDev @ chunk-RPCDYKBN.js?v=0c767221:3699
+invokeGuardedCallback @ chunk-RPCDYKBN.js?v=0c767221:3733
+invokeGuardedCallbackAndCatchFirstError @ chunk-RPCDYKBN.js?v=0c767221:3736
+executeDispatch @ chunk-RPCDYKBN.js?v=0c767221:7014
+processDispatchQueueItemsInOrder @ chunk-RPCDYKBN.js?v=0c767221:7034
+processDispatchQueue @ chunk-RPCDYKBN.js?v=0c767221:7043
+dispatchEventsForPlugins @ chunk-RPCDYKBN.js?v=0c767221:7051
+(anonymous) @ chunk-RPCDYKBN.js?v=0c767221:7174
+batchedUpdates$1 @ chunk-RPCDYKBN.js?v=0c767221:18913
+batchedUpdates @ chunk-RPCDYKBN.js?v=0c767221:3579
+dispatchEventForPluginEventSystem @ chunk-RPCDYKBN.js?v=0c767221:7173
+dispatchEventWithEnableCapturePhaseSelectiveHydrationWithoutDiscreteEventReplay @ chunk-RPCDYKBN.js?v=0c767221:5478
+dispatchEvent @ chunk-RPCDYKBN.js?v=0c767221:5472
+dispatchDiscreteEvent @ chunk-RPCDYKBN.js?v=0c767221:5449Understand this error
+AuthContext.tsx:136 Cross-Origin-Opener-Policy policy would block the window.closed call.
+poll @ firebase_auth.js?v=0c767221:7083
+setTimeout
+poll @ firebase_auth.js?v=0c767221:7098
+setTimeout
+poll @ firebase_auth.js?v=0c767221:7098
+setTimeout
+poll @ firebase_auth.js?v=0c767221:7098
+setTimeout
+poll @ firebase_auth.js?v=0c767221:7098
+setTimeout
+poll @ firebase_auth.js?v=0c767221:7098
+setTimeout
+poll @ firebase_auth.js?v=0c767221:7098
+setTimeout
+poll @ firebase_auth.js?v=0c767221:7098
+setTimeout
+poll @ firebase_auth.js?v=0c767221:7098
+setTimeout
+poll @ firebase_auth.js?v=0c767221:7098
+pollUserCancellation @ firebase_auth.js?v=0c767221:7100
+onExecution @ firebase_auth.js?v=0c767221:7056
+await in onExecution
+(anonymous) @ firebase_auth.js?v=0c767221:6908
+await in (anonymous)
+execute @ firebase_auth.js?v=0c767221:6904
+executeNotNull @ firebase_auth.js?v=0c767221:7024
+signInWithPopup @ firebase_auth.js?v=0c767221:6989
+signInWithGoogle @ AuthContext.tsx:136
+handleGoogleSignIn @ login.tsx:49
+callCallback2 @ chunk-RPCDYKBN.js?v=0c767221:3674
+invokeGuardedCallbackDev @ chunk-RPCDYKBN.js?v=0c767221:3699
+invokeGuardedCallback @ chunk-RPCDYKBN.js?v=0c767221:3733
+invokeGuardedCallbackAndCatchFirstError @ chunk-RPCDYKBN.js?v=0c767221:3736
+executeDispatch @ chunk-RPCDYKBN.js?v=0c767221:7014
+processDispatchQueueItemsInOrder @ chunk-RPCDYKBN.js?v=0c767221:7034
+processDispatchQueue @ chunk-RPCDYKBN.js?v=0c767221:7043
+dispatchEventsForPlugins @ chunk-RPCDYKBN.js?v=0c767221:7051
+(anonymous) @ chunk-RPCDYKBN.js?v=0c767221:7174
+batchedUpdates$1 @ chunk-RPCDYKBN.js?v=0c767221:18913
+batchedUpdates @ chunk-RPCDYKBN.js?v=0c767221:3579
+dispatchEventForPluginEventSystem @ chunk-RPCDYKBN.js?v=0c767221:7173
+dispatchEventWithEnableCapturePhaseSelectiveHydrationWithoutDiscreteEventReplay @ chunk-RPCDYKBN.js?v=0c767221:5478
+dispatchEvent @ chunk-RPCDYKBN.js?v=0c767221:5472
+dispatchDiscreteEvent @ chunk-RPCDYKBN.js?v=0c767221:5449Understand this error
+AuthContext.tsx:136 Cross-Origin-Opener-Policy policy would block the window.closed call.
+poll @ firebase_auth.js?v=0c767221:7083
+setTimeout
+poll @ firebase_auth.js?v=0c767221:7098
+setTimeout
+poll @ firebase_auth.js?v=0c767221:7098
+setTimeout
+poll @ firebase_auth.js?v=0c767221:7098
+setTimeout
+poll @ firebase_auth.js?v=0c767221:7098
+setTimeout
+poll @ firebase_auth.js?v=0c767221:7098
+setTimeout
+poll @ firebase_auth.js?v=0c767221:7098
+setTimeout
+poll @ firebase_auth.js?v=0c767221:7098
+setTimeout
+poll @ firebase_auth.js?v=0c767221:7098
+setTimeout
+poll @ firebase_auth.js?v=0c767221:7098
+pollUserCancellation @ firebase_auth.js?v=0c767221:7100
+onExecution @ firebase_auth.js?v=0c767221:7056
+await in onExecution
+(anonymous) @ firebase_auth.js?v=0c767221:6908
+await in (anonymous)
+execute @ firebase_auth.js?v=0c767221:6904
+executeNotNull @ firebase_auth.js?v=0c767221:7024
+signInWithPopup @ firebase_auth.js?v=0c767221:6989
+signInWithGoogle @ AuthContext.tsx:136
+handleGoogleSignIn @ login.tsx:49
+callCallback2 @ chunk-RPCDYKBN.js?v=0c767221:3674
+invokeGuardedCallbackDev @ chunk-RPCDYKBN.js?v=0c767221:3699
+invokeGuardedCallback @ chunk-RPCDYKBN.js?v=0c767221:3733
+invokeGuardedCallbackAndCatchFirstError @ chunk-RPCDYKBN.js?v=0c767221:3736
+executeDispatch @ chunk-RPCDYKBN.js?v=0c767221:7014
+processDispatchQueueItemsInOrder @ chunk-RPCDYKBN.js?v=0c767221:7034
+processDispatchQueue @ chunk-RPCDYKBN.js?v=0c767221:7043
+dispatchEventsForPlugins @ chunk-RPCDYKBN.js?v=0c767221:7051
+(anonymous) @ chunk-RPCDYKBN.js?v=0c767221:7174
+batchedUpdates$1 @ chunk-RPCDYKBN.js?v=0c767221:18913
+batchedUpdates @ chunk-RPCDYKBN.js?v=0c767221:3579
+dispatchEventForPluginEventSystem @ chunk-RPCDYKBN.js?v=0c767221:7173
+dispatchEventWithEnableCapturePhaseSelectiveHydrationWithoutDiscreteEventReplay @ chunk-RPCDYKBN.js?v=0c767221:5478
+dispatchEvent @ chunk-RPCDYKBN.js?v=0c767221:5472
+dispatchDiscreteEvent @ chunk-RPCDYKBN.js?v=0c767221:5449Understand this error
+AuthContext.tsx:54  POST https://d653493a-4e36-452c-a9f2-86dbf84ba0b6-00-2spebdpdnxh9l.janeway.replit.dev/api/auth/verify 401 (Unauthorized)

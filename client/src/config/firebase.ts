@@ -2,45 +2,24 @@ import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
 
+// Hardcoded Firebase config for ailldoit-6d0e0 project
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  apiKey: "AIzaSyAFoEgZ5wWM7DbYSKhAPPmQbKdEMjRfkkE",
+  authDomain: "ailldoit-6d0e0.firebaseapp.com",
+  projectId: "ailldoit-6d0e0",
+  storageBucket: "ailldoit-6d0e0.appspot.com",
+  messagingSenderId: "648953097935",
+  appId: "1:648953097935:web:33c17e7fd4dbcdaec94c97",
 };
 
-// Validate required config
-const requiredFields = [
-  'VITE_FIREBASE_API_KEY',
-  'VITE_FIREBASE_AUTH_DOMAIN', 
-  'VITE_FIREBASE_PROJECT_ID',
-  'VITE_FIREBASE_STORAGE_BUCKET',
-  'VITE_FIREBASE_MESSAGING_SENDER_ID',
-  'VITE_FIREBASE_APP_ID'
-];
-
-const missingFields = requiredFields.filter(field => !import.meta.env[field]);
-if (missingFields.length > 0) {
-  console.error('❌ Missing Firebase configuration:', missingFields);
-  console.log('Current Firebase config:', {
-    apiKey: import.meta.env.VITE_FIREBASE_API_KEY ? '✓' : '❌',
-    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN ? '✓' : '❌',
-    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID ? '✓' : '❌',
-    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET ? '✓' : '❌',
-    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID ? '✓' : '❌',
-    appId: import.meta.env.VITE_FIREBASE_APP_ID ? '✓' : '❌'
-  });
-} else {
-  console.log('✅ Firebase configuration loaded successfully');
-  console.log('🔍 Current Firebase Project ID:', firebaseConfig.projectId);
-  console.log('🔍 Full Firebase Config:', {
-    projectId: firebaseConfig.projectId,
-    authDomain: firebaseConfig.authDomain,
-    storageBucket: firebaseConfig.storageBucket
-  });
-}
+// Debug logs for hardcoded Firebase config
+console.log('✅ Firebase configuration loaded successfully');
+console.log('🔍 Current Firebase Project ID:', firebaseConfig.projectId);
+console.log('🔍 Full Firebase Config:', {
+  projectId: firebaseConfig.projectId,
+  authDomain: firebaseConfig.authDomain,
+  storageBucket: firebaseConfig.storageBucket
+});
 
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
