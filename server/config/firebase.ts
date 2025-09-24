@@ -6,22 +6,38 @@ import { getStorage } from 'firebase-admin/storage';
 const initializeFirebase = () => {
   if (getApps().length === 0) {
     // Check if Firebase credentials are provided
-    if (!process.env.FIREBASE_PROJECT_ID || !process.env.FIREBASE_CLIENT_EMAIL || !process.env.FIREBASE_PRIVATE_KEY) {
-      console.log('Firebase Admin not configured - FIREBASE_SERVICE_ACCOUNT_KEY missing');
+    if (!process.env.FIREBASE_PROJECT_ID) {
+      console.log('Firebase Admin not configured - FIREBASE_PROJECT_ID missing');
       return null;
     }
 
     try {
-      const app = initializeApp({
-        credential: cert({
+      let credential;
+      
+      // Try using FIREBASE_SERVICE_ACCOUNT_KEY first (JSON format)
+      if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
+        const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
+        credential = cert(serviceAccount);
+      }
+      // Fallback to individual environment variables
+      else if (process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
+        credential = cert({
           projectId: process.env.FIREBASE_PROJECT_ID,
           clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
           privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-        }),
+        });
+      }
+      else {
+        console.log('Firebase Admin not configured - missing credentials');
+        return null;
+      }
+
+      const app = initializeApp({
+        credential,
         storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
       });
       return app;
-    } catch (error) {
+    } catch (error: any) {
       console.log('Firebase Admin initialization failed:', error.message);
       return null;
     }
