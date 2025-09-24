@@ -19,6 +19,9 @@ COPY . .
 # Build the application
 RUN npm run build
 
+# Verify build output
+RUN ls -la dist/ && echo "Build completed successfully"
+
 # Remove dev dependencies to reduce image size
 RUN npm prune --production
 
@@ -38,4 +41,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:8080/api/health || exit 1
 
 # Start the application
-CMD ["npm", "start"]
+CMD ["sh", "-c", "echo 'Starting application...' && echo 'Checking dist directory:' && ls -la dist/ && echo 'Starting server...' && npm start"]

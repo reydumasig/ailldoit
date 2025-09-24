@@ -47,6 +47,15 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  console.log('🚀 Starting Ailldoit server...');
+  console.log('📦 Environment variables:', {
+    NODE_ENV: process.env.NODE_ENV,
+    PORT: process.env.PORT,
+    DATABASE_URL: process.env.DATABASE_URL ? '***configured***' : 'missing',
+    GEMINI_API_KEY: process.env.GEMINI_API_KEY ? '***configured***' : 'missing',
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY ? '***configured***' : 'missing'
+  });
+  
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -71,11 +80,16 @@ app.use((req, res, next) => {
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || '8080', 10);
-  server.listen({
-    port,
-    host: "0.0.0.0",
-    reusePort: true,
-  }, () => {
-    log(`serving on port ${port}`);
+  
+  // Add error handling for server startup
+  server.on('error', (err: any) => {
+    console.error('Server error:', err);
+    process.exit(1);
+  });
+  
+  server.listen(port, "0.0.0.0", () => {
+    console.log(`🚀 Server running on port ${port}`);
+    console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`📊 Process ID: ${process.pid}`);
   });
 })();
