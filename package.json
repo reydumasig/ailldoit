@@ -7,8 +7,10 @@
     "dev": "NODE_ENV=development tsx server/index.ts",
     "build": "vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
     "build:simple": "esbuild server/simple.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
+    "build:progressive": "esbuild server/progressive.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
     "start": "NODE_ENV=production node dist/index.js",
     "start:simple": "NODE_ENV=production node dist/simple.js",
+    "start:progressive": "NODE_ENV=production node dist/progressive.js",
     "check": "tsc",
     "db:push": "drizzle-kit push"
   },
