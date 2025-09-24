@@ -65,7 +65,24 @@ app.use((req, res, next) => {
     console.error('❌ Missing required environment variables:');
     missingVars.forEach(varName => console.error(`   - ${varName}`));
     console.error('\nPlease configure these in your Cloud Run service secrets.');
-    process.exit(1);
+    console.error('For now, starting in maintenance mode...');
+    
+    // Start a minimal server that shows maintenance message
+    app.get('*', (req, res) => {
+      res.status(503).json({
+        error: 'Service temporarily unavailable',
+        message: 'Missing environment variables. Please configure secrets in Cloud Run.',
+        missingVars: missingVars
+      });
+    });
+    
+    const port = parseInt(process.env.PORT || '8080', 10);
+    server.listen(port, "0.0.0.0", () => {
+      console.log(`🚀 Maintenance server running on port ${port}`);
+      console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`📊 Process ID: ${process.pid}`);
+    });
+    return;
   }
   
   console.log('✅ All required environment variables are configured');
