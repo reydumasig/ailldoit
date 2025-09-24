@@ -26,8 +26,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // IMPORTANT: Serve static assets first without authentication
-  // This prevents 401 errors on CSS/JS files in production
-  if (process.env.NODE_ENV === 'production') {
+  // This prevents 401 errors on CSS/JS files in production and staging
+  if (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging') {
     const express = await import('express');
     const path = await import('path');
     const fs = await import('fs');
