@@ -1,0 +1,44 @@
+import { initializeApp, getApps, cert } from 'firebase-admin/app';
+import { getAuth } from 'firebase-admin/auth';
+import { getStorage } from 'firebase-admin/storage';
+
+// Initialize Firebase Admin SDK for Google Cloud
+const initializeFirebase = () => {
+  if (getApps().length === 0) {
+    // For Google Cloud, we can use Application Default Credentials
+    // or a service account key
+    const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+    
+    if (!serviceAccount) {
+      console.error('❌ FIREBASE_SERVICE_ACCOUNT_KEY environment variable is missing!');
+      console.error('This is required for Firebase authentication to work.');
+      console.error('In Google Cloud, you can also use Application Default Credentials.');
+      process.exit(1);
+    }
+    
+    try {
+      const serviceAccountKey = JSON.parse(serviceAccount);
+      
+      // Validate required fields
+      if (!serviceAccountKey.project_id) {
+        throw new Error('Service account JSON is missing the required project_id property');
+      }
+      
+      const app = initializeApp({
+        credential: cert(serviceAccountKey),
+        storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET || `${serviceAccountKey.project_id}.appspot.com`,
+      });
+      console.log('✅ Firebase Admin SDK initialized for Google Cloud');
+      return app;
+    } catch (parseError) {
+      console.error('Firebase Admin initialization failed:', parseError);
+      throw parseError;
+    }
+  }
+  return getApps()[0];
+};
+
+// Export Firebase services
+export const firebaseApp = initializeFirebase();
+export const auth = getAuth(firebaseApp);
+export const storage = getStorage(firebaseApp);
