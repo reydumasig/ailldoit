@@ -59,6 +59,19 @@ app.get('/api/test/database', async (req, res) => {
       });
     }
 
+    // Check if it's a valid PostgreSQL connection string
+    if (!dbUrl.includes('postgresql://') && !dbUrl.includes('postgres://')) {
+      return res.status(500).json({
+        status: 'error',
+        message: 'DATABASE_URL is not a valid PostgreSQL connection string',
+        current_format: dbUrl.substring(0, 50) + '...',
+        required_format: 'postgresql://username:password@host:port/database',
+        cloud_sql_example: 'postgresql://username:password@35.184.33.188:5432/database',
+        action: 'Update DATABASE_URL to use Cloud SQL connection string',
+        timestamp: new Date().toISOString()
+      });
+    }
+
     // Try to import and test Google Cloud SQL database
     const { db } = await import('./db-gcp.js');
     

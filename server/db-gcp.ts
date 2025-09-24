@@ -22,6 +22,15 @@ if (connectionString.includes('neon.tech') || connectionString.includes('neon.xy
   process.exit(1);
 }
 
+// Check if this is a valid Cloud SQL connection string
+if (!connectionString.includes('postgresql://') && !connectionString.includes('postgres://')) {
+  console.error("❌ DATABASE_URL is not a valid PostgreSQL connection string!");
+  console.error("Current URL format:", connectionString.substring(0, 50) + "...");
+  console.error("Required format: postgresql://username:password@host:port/database");
+  console.error("For Cloud SQL: postgresql://username:password@35.184.33.188:5432/database");
+  process.exit(1);
+}
+
 // Configure postgres for Cloud SQL
 const sql = postgres(connectionString, {
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,

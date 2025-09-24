@@ -24,7 +24,7 @@ import {
   type InsertCreditUsage,
   type InsertSystemAnalytics,
 } from "@shared/schema";
-import { db } from "./db";
+import { db } from "./db-gcp";
 import { eq, desc, and, sql, count, sum, gte } from "drizzle-orm";
 
 export interface IStorage {

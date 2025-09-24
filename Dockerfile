@@ -16,8 +16,8 @@ RUN npm ci && npm cache clean --force
 # Copy source code
 COPY . .
 
-# Build the application (Google Cloud progressive version for testing)
-RUN npm run build:progressive-gcp
+# Build the application (full application with Google Cloud config)
+RUN npm run build
 
 # Verify build output
 RUN ls -la dist/ && echo "Build completed successfully"
@@ -41,4 +41,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:8080/api/health || exit 1
 
 # Start the application
-CMD ["sh", "-c", "echo 'Starting Google Cloud progressive application...' && echo 'Checking dist directory:' && ls -la dist/ && echo 'Starting Google Cloud progressive server...' && npm run start:progressive-gcp"]
+CMD ["sh", "-c", "echo 'Starting Ailldoit application...' && echo 'Checking dist directory:' && ls -la dist/ && echo 'Starting server...' && npm start"]

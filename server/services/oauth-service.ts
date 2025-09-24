@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { db } from '../db';
+import { db } from '../db-gcp';
 import { oauthConnections, type OAuthConnection, type InsertOAuthConnection } from '@shared/schema';
 import { eq, and } from 'drizzle-orm';
 

@@ -1,4 +1,4 @@
-import { db } from '../db';
+import { db } from '../db-gcp';
 import { publishingSimulations, campaigns, type InsertPublishingSimulation } from '@shared/schema';
 import { eq } from 'drizzle-orm';
 
