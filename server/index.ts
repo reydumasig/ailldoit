@@ -1,7 +1,6 @@
 import { config } from 'dotenv';
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
-import { setupVite, serveStatic, log } from "./vite";
 
 // Load environment variables
 config();
@@ -43,7 +42,7 @@ app.use((req, res, next) => {
         logLine = logLine.slice(0, 79) + "…";
       }
 
-      log(logLine);
+      console.log(logLine);
     }
   });
 
@@ -65,8 +64,10 @@ app.use((req, res, next) => {
   // setting up all the other routes so the catch-all route
   // doesn't interfere with the other routes
   if (app.get("env") === "development") {
+    const { setupVite } = await import("./vite");
     await setupVite(app, server);
   } else {
+    const { serveStatic } = await import("./vite");
     serveStatic(app);
   }
 
@@ -80,6 +81,6 @@ app.use((req, res, next) => {
     host: "0.0.0.0",
     reusePort: true,
   }, () => {
-    log(`serving on port ${port}`);
+    console.log(`serving on port ${port}`);
   });
 })();
