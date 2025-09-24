@@ -64,27 +64,22 @@ app.use((req, res, next) => {
   // setting up all the other routes so the catch-all route
   // doesn't interfere with the other routes
   if (app.get("env") === "development") {
-    const { setupVite } = await import("./vite");
-    await setupVite(app, server);
+    const { setupVite: setupVite2 } = await import("./vite.ts");
+    await setupVite2(app, server);
   } else {
-    // In production, serve static files directly without importing vite
-    const express = await import('express');
-    const path = await import('path');
-    const fs = await import('fs');
-    
-    const distPath = path.resolve(import.meta.dirname, "public");
-    
-    if (!fs.existsSync(distPath)) {
+    // This is the production-only block
+    const expressStatic = (await import("express")).default;
+    const path3 = (await import("path")).default;
+    const fs2 = (await import("fs")).default;
+    const distPath = path3.resolve(import.meta.dirname, "public");
+    if (!fs2.existsSync(distPath)) {
       throw new Error(
-        `Could not find the build directory: ${distPath}, make sure to build the client first`,
+        `Could not find the build directory: ${distPath}, make sure to build the client first`
       );
     }
-
-    app.use(express.default.static(distPath));
-
-    // fall through to index.html if the file doesn't exist
+    app.use(expressStatic(distPath));
     app.use("*", (_req, res) => {
-      res.sendFile(path.resolve(distPath, "index.html"));
+      res.sendFile(path3.resolve(distPath, "index.html"));
     });
   }
 
