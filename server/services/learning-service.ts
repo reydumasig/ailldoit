@@ -1,9 +1,17 @@
 import { storage } from '../storage';
 import { OpenAI } from 'openai';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+let openai: OpenAI | null = null;
+
+try {
+  if (process.env.OPENAI_API_KEY) {
+    openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+  }
+} catch (error) {
+  console.warn('⚠️  OpenAI not initialized in learning service:', error);
+}
 
 export interface ContentFeatures {
   length: number;
@@ -51,6 +59,10 @@ Analyze and return a JSON object with these exact fields:
   "structure": describe the content structure pattern (e.g., "hook-benefit-cta", "question-answer", "story-lesson")
 }`;
 
+      if (!openai) {
+        throw new Error('OpenAI service not available - API key missing');
+      }
+      
       const completion = await openai.chat.completions.create({
         model: "gpt-4o",
         messages: [

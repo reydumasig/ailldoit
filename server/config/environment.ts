@@ -15,9 +15,9 @@ export function getEnvironmentConfig(): EnvironmentConfig {
   const isDevelopment = process.env.NODE_ENV === 'development';
   const isProduction = process.env.NODE_ENV === 'production';
   
-  // Detect domain from REPLIT_DOMAINS or default
-  const domains = process.env.REPLIT_DOMAINS?.split(',') || [];
-  const isLiveDomain = domains.some(domain => domain.includes('app.ailldoit.com'));
+  // Detect domain from environment or default
+  const currentDomain = process.env.CLOUD_RUN_SERVICE_URL || process.env.DOMAIN || 'localhost';
+  const isLiveDomain = currentDomain.includes('app.ailldoit.com');
   
   // Use live keys for production domain, test keys for development
   const useTestKeys = isDevelopment || !isLiveDomain;

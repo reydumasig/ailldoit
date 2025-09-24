@@ -9,9 +9,9 @@ const initializeFirebase = () => {
     const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_NEW || process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
     
     if (!serviceAccount) {
-      console.error('❌ FIREBASE_SERVICE_ACCOUNT_KEY environment variable is missing!');
-      console.error('This is required for Firebase authentication to work.');
-      process.exit(1);
+      console.warn('⚠️  FIREBASE_SERVICE_ACCOUNT_KEY environment variable is missing!');
+      console.warn('Firebase authentication will not work without this key.');
+      return null;
     }
     
     try {
@@ -39,5 +39,5 @@ const initializeFirebase = () => {
 
 // Export Firebase services
 export const firebaseApp = initializeFirebase();
-export const auth = getAuth(firebaseApp);
-export const storage = getStorage(firebaseApp);
+export const auth = firebaseApp ? getAuth(firebaseApp) : null;
+export const storage = firebaseApp ? getStorage(firebaseApp) : null;

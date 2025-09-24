@@ -27,7 +27,8 @@ gcloud run deploy ailldoit-app \
   --set-secrets OPENAI_API_KEY=OPENAI_API_KEY:latest \
   --set-secrets STRIPE_SECRET_KEY=STRIPE_SECRET_KEY:latest \
   --set-secrets FIREBASE_SERVICE_ACCOUNT_KEY=FIREBASE_SERVICE_ACCOUNT_KEY:latest \
-  --set-secrets REPLICATE_API_TOKEN=REPLICATE_API_TOKEN:latest
+  --set-secrets REPLICATE_API_TOKEN=REPLICATE_API_TOKEN:latest \
+  --set-env-vars GOOGLE_CLOUD_PROJECT_ID=ailldoit-6d0e0
 
 echo "🎉 Deployment completed!"
 echo "Your app is now running on Google Cloud!"

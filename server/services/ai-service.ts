@@ -5,20 +5,47 @@ import { videoHostingService } from './video-hosting-service';
 import { GeneratedContent } from '@shared/schema';
 import { learningService } from './learning-service';
 
-// Initialize AI services
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// Initialize AI services with error handling
+let openai: OpenAI | null = null;
+let replicate: Replicate | null = null;
+let gemini: GoogleGenAI | null = null;
 
-const replicate = new Replicate({
-  auth: process.env.REPLICATE_API_TOKEN,
-});
+try {
+  if (process.env.OPENAI_API_KEY) {
+    openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+  }
+} catch (error) {
+  console.warn('⚠️  OpenAI not initialized:', error);
+}
 
-const gemini = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-});
+try {
+  if (process.env.REPLICATE_API_TOKEN) {
+    replicate = new Replicate({
+      auth: process.env.REPLICATE_API_TOKEN,
+    });
+  }
+} catch (error) {
+  console.warn('⚠️  Replicate not initialized:', error);
+}
+
+try {
+  if (process.env.GEMINI_API_KEY) {
+    gemini = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+    });
+  }
+} catch (error) {
+  console.warn('⚠️  Gemini not initialized:', error);
+}
 
 export class AIService {
+  private checkService(service: any, name: string) {
+    if (!service) {
+      throw new Error(`${name} service not available - API key missing`);
+    }
+  }
   // Helper function to fetch and convert images to base64 with mime type detection
   private async fetchImageAsBase64(imageUrl: string): Promise<{ data: string; mimeType: string }> {
     try {
@@ -68,7 +95,8 @@ export class AIService {
       
       console.log(`🧠 Using AI learning-enhanced prompts for ${platform}/${language}`);
       
-      const completion = await openai.chat.completions.create({
+      this.checkService(openai, 'OpenAI');
+      const completion = await openai!.chat.completions.create({
         model: "gpt-4o",
         messages: [
           {
@@ -106,7 +134,8 @@ export class AIService {
   private async generateAdContentBaseline(brief: string, platform: string, language: string): Promise<GeneratedContent> {
     const prompt = this.buildContentPrompt(brief, platform, language);
     
-    const completion = await openai.chat.completions.create({
+    this.checkService(openai, 'OpenAI');
+    const completion = await openai!.chat.completions.create({
       model: "gpt-4o",
       messages: [
         {
@@ -296,7 +325,8 @@ export class AIService {
       
       console.log(`📝 Enhanced prompt: ${enhancedPrompt}`);
       
-      const response = await openai.images.generate({
+      this.checkService(openai, 'OpenAI');
+      const response = await openai!.images.generate({
         model: "dall-e-3",
         prompt: enhancedPrompt,
         n: 1,
@@ -362,7 +392,8 @@ export class AIService {
     Format as JSON array with timeframe, visual action, and audio elements for each scene.`;
 
     try {
-      const completion = await openai.chat.completions.create({
+      this.checkService(openai, 'OpenAI');
+      const completion = await openai!.chat.completions.create({
         model: "gpt-4o",
         messages: [
           {

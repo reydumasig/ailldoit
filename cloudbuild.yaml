@@ -35,6 +35,8 @@ steps:
       - 'FIREBASE_SERVICE_ACCOUNT_KEY=FIREBASE_SERVICE_ACCOUNT_KEY:latest'
       - '--set-secrets'
       - 'REPLICATE_API_TOKEN=REPLICATE_API_TOKEN:latest'
+      - '--set-env-vars'
+      - 'GOOGLE_CLOUD_PROJECT_ID=ailldoit-6d0e0'
 
 images:
   - 'gcr.io/$PROJECT_ID/ailldoit-app:$COMMIT_SHA'

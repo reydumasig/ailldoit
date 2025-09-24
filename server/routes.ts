@@ -5,19 +5,22 @@ import { storage } from "./storage";
 import { insertCampaignSchema } from "@shared/schema";
 import { authenticateToken, optionalAuth } from "./middleware/auth";
 import { admin } from "./config/firebase-admin";
-import { oauthService } from "./services/oauth-service";
-import { AIService } from "./services/ai-service";
-import { ABTestingService } from "./services/ab-testing-service";
-import { PublishingService } from "./services/publishing-service";
-import { StorageService } from "./services/storage-service";
-import { learningService } from "./services/learning-service";
-import { briefTemplateService } from "./services/brief-template-service";
+// Services will be imported dynamically inside registerRoutes to avoid initialization issues
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
 import { z } from "zod";
 import crypto from 'crypto';
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Import services dynamically to avoid initialization issues during maintenance mode
+  const { oauthService } = await import("./services/oauth-service");
+  const { AIService } = await import("./services/ai-service");
+  const { ABTestingService } = await import("./services/ab-testing-service");
+  const { PublishingService } = await import("./services/publishing-service");
+  const { StorageService } = await import("./services/storage-service");
+  const { learningService } = await import("./services/learning-service");
+  const { briefTemplateService } = await import("./services/brief-template-service");
+
   // 🏥 HEALTH CHECK ENDPOINT - For Cloud Run health checks
   app.get('/api/health', (req, res) => {
     res.status(200).json({ 
@@ -44,7 +47,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Simple test route for OAuth
   app.get('/api/test-meta-oauth', async (req, res) => {
     try {
-      // Use HTTPS for redirect URI in production/Replit
+      // Use HTTPS for redirect URI in production
       const domain = req.get('host');
       const redirectUri = `https://${domain}/auth/meta/callback`;
       const state = 'test-' + Date.now();
@@ -1428,7 +1431,7 @@ ${campaign.brief}`;
       }
 
       const state = 'test-state-' + Date.now();
-      // Use HTTPS for redirect URI in production/Replit
+      // Use HTTPS for redirect URI in production
       const domain = req.get('host');
       const redirectUri = `https://${domain}/auth/${platform}/callback`;
       const oauthUrl = oauthService.getOAuthUrl(platform, redirectUri, state);
@@ -1464,7 +1467,7 @@ ${campaign.brief}`;
       
       // Store OAuth state in memory or database temporarily
       // For now, we'll include it in the URL and verify it on callback
-      // Use HTTPS for redirect URI in production/Replit
+      // Use HTTPS for redirect URI in production
       const domain = req.get('host');
       const redirectUri = `https://${domain}/auth/${platform}/callback`;
       const oauthUrl = oauthService.getOAuthUrl(platform, redirectUri, state, flowType);
@@ -1509,7 +1512,7 @@ ${campaign.brief}`;
       (req.session as any).oauthFlowType = flowType;
       (req.session as any).userId = req.user!.id;
 
-      // Use HTTPS for redirect URI in production/Replit
+      // Use HTTPS for redirect URI in production
       const domain = req.get('host');
       const redirectUri = `https://${domain}/auth/${platform}/callback`;
       const oauthUrl = oauthService.getOAuthUrl(platform, redirectUri, state, flowType);
@@ -1543,7 +1546,7 @@ ${campaign.brief}`;
         return res.status(400).json({ message: 'User session not found' });
       }
 
-      // Use HTTPS for redirect URI in production/Replit
+      // Use HTTPS for redirect URI in production
       const domain = req.get('host');
       const redirectUri = `https://${domain}/auth/${platform}/callback`;
       

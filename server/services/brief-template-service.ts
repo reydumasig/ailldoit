@@ -2,13 +2,28 @@ import { GoogleGenAI } from '@google/genai';
 import OpenAI from 'openai';
 import { storage } from '../storage';
 
-const gemini = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-});
+let gemini: GoogleGenAI | null = null;
+let openai: OpenAI | null = null;
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+try {
+  if (process.env.GEMINI_API_KEY) {
+    gemini = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+    });
+  }
+} catch (error) {
+  console.warn('⚠️  Gemini not initialized in brief template service:', error);
+}
+
+try {
+  if (process.env.OPENAI_API_KEY) {
+    openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+  }
+} catch (error) {
+  console.warn('⚠️  OpenAI not initialized in brief template service:', error);
+}
 
 export interface BriefTemplate {
   id: string;
@@ -92,6 +107,10 @@ export class BriefTemplateService {
         ]
       }`;
 
+      if (!gemini) {
+        throw new Error('Gemini service not available - API key missing');
+      }
+      
       const result = await gemini.models.generateContent({
         model: "gemini-2.0-flash-exp",
         contents: prompt,
@@ -209,6 +228,10 @@ export class BriefTemplateService {
         "category": "category name"
       }`;
 
+      if (!openai) {
+        throw new Error('OpenAI service not available - API key missing');
+      }
+      
       const completion = await openai.chat.completions.create({
         model: "gpt-4o",
         messages: [

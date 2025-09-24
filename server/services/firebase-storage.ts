@@ -24,6 +24,11 @@ export class FirebaseStorageService {
   private bucket: any;
 
   constructor() {
+    if (!firebaseApp) {
+      console.warn('⚠️  Firebase Storage not available - Firebase Admin not initialized');
+      return;
+    }
+    
     try {
       this.bucket = getStorage(firebaseApp).bucket();
     } catch (error) {
@@ -303,4 +308,22 @@ export class FirebaseStorageService {
   }
 }
 
-export const firebaseStorage = new FirebaseStorageService();
+// Lazy initialization to avoid startup issues
+let _firebaseStorage: FirebaseStorageService | null = null;
+
+export const firebaseStorage = {
+  get instance() {
+    if (!_firebaseStorage) {
+      _firebaseStorage = new FirebaseStorageService();
+    }
+    return _firebaseStorage;
+  },
+  
+  // Proxy methods to the instance
+  uploadVideo: (...args: any[]) => this.instance.uploadVideo(...args),
+  uploadVideoFromUrl: (...args: any[]) => this.instance.uploadVideoFromUrl(...args),
+  deleteVideo: (...args: any[]) => this.instance.deleteVideo(...args),
+  uploadVideoFromBuffer: (...args: any[]) => this.instance.uploadVideoFromBuffer(...args),
+  downloadVideoImmediately: (...args: any[]) => this.instance.downloadVideoImmediately(...args),
+  isConfigured: () => _firebaseStorage ? _firebaseStorage.isConfigured() : false
+};
