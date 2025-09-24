@@ -37,6 +37,28 @@ app.get('/', (req, res) => {
 // Test Google Cloud SQL connection
 app.get('/api/test/database', async (req, res) => {
   try {
+    // Check DATABASE_URL format first
+    const dbUrl = process.env.DATABASE_URL;
+    if (!dbUrl) {
+      return res.status(500).json({
+        status: 'error',
+        message: 'DATABASE_URL environment variable is missing',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Check if it's still pointing to Neon
+    if (dbUrl.includes('neon.tech') || dbUrl.includes('neon.xyz')) {
+      return res.status(500).json({
+        status: 'error',
+        message: 'DATABASE_URL is still pointing to Neon database',
+        current_format: dbUrl.substring(0, 50) + '...',
+        required_format: 'postgresql://username:password@/database?host=/cloudsql/project:region:instance',
+        action: 'Update DATABASE_URL to Google Cloud SQL connection string',
+        timestamp: new Date().toISOString()
+      });
+    }
+
     // Try to import and test Google Cloud SQL database
     const { db } = await import('./db-gcp.js');
     

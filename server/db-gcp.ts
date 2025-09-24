@@ -12,6 +12,16 @@ if (!process.env.DATABASE_URL) {
 // Create postgres connection for Google Cloud SQL
 const connectionString = process.env.DATABASE_URL;
 
+// Check if this is a Neon URL (neon.tech) and provide helpful error
+if (connectionString.includes('neon.tech') || connectionString.includes('neon.xyz')) {
+  console.error("❌ DATABASE_URL is still pointing to Neon database!");
+  console.error("Current URL format:", connectionString.substring(0, 50) + "...");
+  console.error("You need to update this to a Google Cloud SQL connection string.");
+  console.error("Format: postgresql://username:password@/database?host=/cloudsql/project:region:instance");
+  console.error("Or use: postgresql://username:password@/database?host=/cloudsql/project:region:instance&sslmode=require");
+  process.exit(1);
+}
+
 // Configure postgres for Cloud SQL
 const sql = postgres(connectionString, {
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
