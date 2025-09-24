@@ -1,0 +1,40 @@
+steps:
+  # Build the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/ailldoit-app:$COMMIT_SHA', '.']
+  
+  # Push the container image to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/ailldoit-app:$COMMIT_SHA']
+  
+  # Deploy container image to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'ailldoit-app'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/ailldoit-app:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--set-env-vars'
+      - 'NODE_ENV=production'
+      - '--set-secrets'
+      - 'DATABASE_URL=DATABASE_URL:latest'
+      - '--set-secrets'
+      - 'GEMINI_API_KEY=GEMINI_API_KEY:latest'
+      - '--set-secrets'
+      - 'OPENAI_API_KEY=OPENAI_API_KEY:latest'
+      - '--set-secrets'
+      - 'STRIPE_SECRET_KEY=STRIPE_SECRET_KEY:latest'
+      - '--set-secrets'
+      - 'FIREBASE_SERVICE_ACCOUNT_KEY=FIREBASE_SERVICE_ACCOUNT_KEY:latest'
+      - '--set-secrets'
+      - 'REPLICATE_API_TOKEN=REPLICATE_API_TOKEN:latest'
+
+images:
+  - 'gcr.io/$PROJECT_ID/ailldoit-app:$COMMIT_SHA'

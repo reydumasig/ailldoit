@@ -164,17 +164,27 @@ export class ObjectStorageService {
     const bucket = objectStorageClient.bucket(bucketName);
     const file = bucket.file(objectName);
     
-    // Upload the buffer with public read permissions
+    // Upload the buffer without public access (respects bucket's public access prevention)
     await file.save(buffer, {
       metadata: {
         contentType: 'video/mp4',
         cacheControl: 'public, max-age=31536000', // 1 year cache
       },
-      public: true, // Make file publicly accessible
+      // Remove public: true to respect bucket's public access prevention
     });
     
-    // Return the public URL
-    return `https://storage.googleapis.com/${bucketName}/${objectName}`;
+    // Try to generate a signed URL, fallback to direct URL if signing fails
+    try {
+      const [signedUrl] = await file.getSignedUrl({
+        action: 'read',
+        expires: '03-17-2125', // Far future date for permanent access
+      });
+      return signedUrl;
+    } catch (signError) {
+      console.warn('⚠️ Could not generate signed URL, using direct URL:', signError.message);
+      // Fallback to direct URL (may not be publicly accessible)
+      return `https://storage.googleapis.com/${bucketName}/${objectName}`;
+    }
   }
 
   // Download video from URL with retries
@@ -186,7 +196,8 @@ export class ObjectStorageService {
         const response = await fetch(videoUrl, {
           method: 'GET',
           headers: {
-            'User-Agent': 'Ailldoit-VideoHosting/1.0'
+            'User-Agent': 'Ailldoit-VideoHosting/1.0',
+            'x-goog-api-key': process.env.GEMINI_API_KEY!,
           },
           signal: AbortSignal.timeout(30000) // 30 second timeout
         });

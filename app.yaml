@@ -1,0 +1,29 @@
+runtime: nodejs20
+env: flex
+
+automatic_scaling:
+  min_num_instances: 1
+  max_num_instances: 10
+  cool_down_period: 60s
+  cpu_utilization:
+    target_utilization: 0.6
+
+resources:
+  cpu: 1
+  memory_gb: 2
+  disk_size_gb: 10
+
+env_variables:
+  NODE_ENV: production
+  VITE_FIREBASE_API_KEY: "AIzaSyBws685hYqlPxIyzirqyFLOZ4G-D2zwKbY"
+  VITE_FIREBASE_AUTH_DOMAIN: "ailldoit-6d0e0.firebaseapp.com"
+  VITE_FIREBASE_PROJECT_ID: "ailldoit-6d0e0"
+  VITE_FIREBASE_STORAGE_BUCKET: "ailldoit-6d0e0.firebasestorage.app"
+  VITE_FIREBASE_MESSAGING_SENDER_ID: "481184449900"
+  VITE_FIREBASE_APP_ID: "1:481184449900:web:627e5e0142defac2d95f49"
+  VITE_STRIPE_PUBLIC_KEY: "pk_test_51RqcYjPP7rDa2d8UVCKTp959ihQxyQohzziBPRAbFurkFsrNETkWaVvwygo2qQhVEbYAr7zc47jOgJsvugSGoz9T00RdcJL1Rp"
+  VITE_STRIPE_STARTER_PRICE_ID: "price_1RqcmNAhpvUrf7JNFoqHHQ7g"
+  VITE_STRIPE_GROWTH_PRICE_ID: "price_1RqcmNAhpvUrf7JN2iWuBtPC"
+
+beta_settings:
+  cloud_sql_instances: "PROJECT_ID:REGION:INSTANCE_NAME"

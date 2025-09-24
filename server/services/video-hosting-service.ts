@@ -133,6 +133,7 @@ export class VideoHostingService {
           signal: controller.signal,
           headers: {
             'User-Agent': 'Mozilla/5.0 (compatible; VideoDownloader/1.0)',
+            'x-goog-api-key': process.env.GEMINI_API_KEY!,
           }
         });
         
