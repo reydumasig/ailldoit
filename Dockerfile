@@ -1,38 +1,37 @@
 # Stage 1: Build the application
-FROM node:20-alpine AS build
+FROM node:20-slim AS builder
+
 WORKDIR /app
 
-# Copy package files first to leverage Docker cache
-COPY package*.json ./
-# Install all dependencies, including devDependencies
-RUN npm ci
+# Copy package.json and package-lock.json
+COPY package.json package-lock.json ./
 
-# Copy the rest of the application code
+# Install all dependencies (including devDependencies for the build)
+RUN npm install
+
+# Copy the rest of the application source code
 COPY . .
 
-# Build both the client and server
+# Build the client and server
 RUN npm run build
 
 # Stage 2: Create the production image
-FROM node:20-alpine
+FROM node:20-slim
+
 WORKDIR /app
 
-# Copy the build artifacts and package files from the build stage
-COPY --from=build /app/dist ./dist
-COPY --from=build /app/package.json ./package.json
-COPY --from=build /app/package-lock.json ./package-lock.json
+# Copy package.json and package-lock.json
+COPY package.json package-lock.json ./
 
-# Only install production dependencies
-RUN npm ci --only=production && npm cache clean --force
+# Install only production dependencies
+RUN npm install --omit=dev
 
-# Create non-root user for security
-RUN addgroup -g 1001 -S nodejs
-RUN adduser -S nextjs -u 1001
-RUN chown -R nextjs:nodejs /app
-USER nextjs
+# Copy the built application from the builder stage
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/videos ./videos
 
-# Expose port and define the start command
+# Expose the port the app runs on
 EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:8080/api/health || exit 1
-CMD ["npm", "start"]
+
+# Set the entrypoint to run the production server
+CMD ["npm", "run", "start"]

@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "type": "module",
   "license": "MIT",
- "scripts": {
-  "dev": "NODE_ENV=development tsx server/server-dev.ts",
+ "scripts": { 
+  "dev": "NODE_ENV=development tsx server/index.ts",
   "build:client": "vite build",
     "build:server": "esbuild server/server-prod.ts --platform=node --packages=external --bundle --format=esm --outfile=dist/index.js",
   "build": "npm run build:client && npm run build:server",
