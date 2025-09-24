@@ -16,8 +16,8 @@ RUN npm ci && npm cache clean --force
 # Copy source code
 COPY . .
 
-# Build the application
-RUN npm run build
+# Build the application (simple version for debugging)
+RUN npm run build:simple
 
 # Verify build output
 RUN ls -la dist/ && echo "Build completed successfully"
@@ -41,4 +41,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:8080/api/health || exit 1
 
 # Start the application
-CMD ["sh", "-c", "echo 'Starting application...' && echo 'Checking dist directory:' && ls -la dist/ && echo 'Starting server...' && npm start"]
+CMD ["sh", "-c", "echo 'Starting simple application...' && echo 'Checking dist directory:' && ls -la dist/ && echo 'Starting simple server...' && npm run start:simple"]
