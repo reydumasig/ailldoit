@@ -18,6 +18,15 @@ import { z } from "zod";
 import crypto from 'crypto';
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // 🏥 HEALTH CHECK ENDPOINT - For Cloud Run health checks
+  app.get('/api/health', (req, res) => {
+    res.status(200).json({ 
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime()
+    });
+  });
+
   // IMPORTANT: Serve static assets first without authentication
   // This prevents 401 errors on CSS/JS files in production
   if (process.env.NODE_ENV === 'production') {
