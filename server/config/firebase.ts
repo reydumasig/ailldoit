@@ -9,8 +9,9 @@ const initializeFirebase = () => {
     const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_NEW || process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
     
     if (!serviceAccount) {
-      console.error('Firebase Admin initialization failed due to missing or invalid FIREBASE_SERVICE_ACCOUNT_KEY_NEW environment variable');
-      throw new Error('Firebase service account configuration missing');
+      console.error('❌ FIREBASE_SERVICE_ACCOUNT_KEY environment variable is missing!');
+      console.error('This is required for Firebase authentication to work.');
+      process.exit(1);
     }
     
     try {

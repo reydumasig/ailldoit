@@ -48,12 +48,36 @@ app.use((req, res, next) => {
 
 (async () => {
   console.log('🚀 Starting Ailldoit server...');
+  
+  // Check required environment variables
+  const requiredEnvVars = [
+    'DATABASE_URL',
+    'FIREBASE_SERVICE_ACCOUNT_KEY',
+    'GEMINI_API_KEY',
+    'OPENAI_API_KEY',
+    'STRIPE_SECRET_KEY',
+    'REPLICATE_API_TOKEN'
+  ];
+  
+  const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
+  
+  if (missingVars.length > 0) {
+    console.error('❌ Missing required environment variables:');
+    missingVars.forEach(varName => console.error(`   - ${varName}`));
+    console.error('\nPlease configure these in your Cloud Run service secrets.');
+    process.exit(1);
+  }
+  
+  console.log('✅ All required environment variables are configured');
   console.log('📦 Environment variables:', {
     NODE_ENV: process.env.NODE_ENV,
     PORT: process.env.PORT,
     DATABASE_URL: process.env.DATABASE_URL ? '***configured***' : 'missing',
     GEMINI_API_KEY: process.env.GEMINI_API_KEY ? '***configured***' : 'missing',
-    OPENAI_API_KEY: process.env.OPENAI_API_KEY ? '***configured***' : 'missing'
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY ? '***configured***' : 'missing',
+    FIREBASE_SERVICE_ACCOUNT_KEY: process.env.FIREBASE_SERVICE_ACCOUNT_KEY ? '***configured***' : 'missing',
+    STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY ? '***configured***' : 'missing',
+    REPLICATE_API_TOKEN: process.env.REPLICATE_API_TOKEN ? '***configured***' : 'missing'
   });
   
   const server = await registerRoutes(app);
