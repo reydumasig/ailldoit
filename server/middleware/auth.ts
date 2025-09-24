@@ -24,6 +24,11 @@ export async function authenticateToken(req: Request, res: Response, next: NextF
       return res.status(401).json({ message: 'Access token required' });
     }
 
+    // Check if Firebase is configured
+    if (!admin.apps.length) {
+      return res.status(503).json({ message: 'Authentication service not configured' });
+    }
+
     // Verify Firebase ID token
     const decodedToken = await admin.auth().verifyIdToken(token);
     
