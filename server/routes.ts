@@ -16,6 +16,16 @@ import { z } from "zod";
 import crypto from 'crypto';
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Add middleware to set the Cross-Origin-Opener-Policy header.
+  // This is the recommended fix for the "window.close" error with OAuth popups.
+  app.use((req, res, next) => {
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+    next();
+  });
+
+  // Log to confirm the middleware is active
+  console.log('✅ COOP header middleware registered.');
+
   // Health check endpoint for Cloud Run
   app.get('/api/health', (req, res) => {
     res.status(200).json({ 
@@ -417,58 +427,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Generation error:', error);
       res.status(500).json({ message: "Failed to generate content" });
-    }
-  });
-
-  // Publish campaign to social media platforms (protected)
-  app.post("/api/campaigns/:id/publish", authenticateToken, async (req, res) => {
-    try {
-      const id = parseInt(req.params.id);
-      const { publishingSettings } = req.body;
-      
-      const campaign = await storage.getCampaign(id, req.user!.id);
-      if (!campaign) {
-        return res.status(404).json({ message: "Campaign not found" });
-      }
-
-      if (!campaign.generatedContent) {
-        return res.status(400).json({ message: "Campaign content not generated yet" });
-      }
-
-      // Update status to publishing
-      await storage.updateCampaign(id, { 
-        status: "publishing",
-        publishingSettings
-      }, req.user!.id);
-
-      // Use real publishing service
-      try {
-        const { publishingService } = await import("./services/publishing-service");
-        
-        const results = await publishingService.publishCampaign(
-          req.user!.id,
-          id,
-          campaign.generatedContent,
-          publishingSettings
-        );
-        
-        await storage.updateCampaign(id, { 
-          status: "published",
-          publishingResults: results
-        }, req.user!.id);
-
-        res.json({ 
-          message: "Campaign published successfully",
-          results
-        });
-      } catch (publishError) {
-        console.error('Publishing failed:', publishError);
-        await storage.updateCampaign(id, { status: "ready" }, req.user!.id);
-        res.status(500).json({ message: "Publishing failed, please try again" });
-      }
-    } catch (error) {
-      console.error('Publishing error:', error);
-      res.status(500).json({ message: "Failed to publish campaign" });
     }
   });
 

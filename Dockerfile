@@ -1,37 +1,55 @@
 # Stage 1: Build the application
-FROM node:20-slim AS builder
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy package.json and package-lock.json
-COPY package.json package-lock.json ./
+# Define ARGs for all build-time secrets
+ARG VITE_FIREBASE_API_KEY
+ARG VITE_FIREBASE_AUTH_DOMAIN
+ARG VITE_FIREBASE_PROJECT_ID
+ARG VITE_FIREBASE_STORAGE_BUCKET
+ARG VITE_FIREBASE_MESSAGING_SENDER_ID
+ARG VITE_FIREBASE_APP_ID
+ARG VITE_STRIPE_PUBLIC_KEY
+ARG VITE_STRIPE_STARTER_PRICE_ID
+ARG VITE_STRIPE_GROWTH_PRICE_ID
 
-# Install all dependencies (including devDependencies for the build)
+# Copy package files and install all dependencies for the build
+COPY package.json package-lock.json ./
 RUN npm install
 
 # Copy the rest of the application source code
 COPY . .
 
+# Make ARGs available as environment variables for the build process
+ENV VITE_FIREBASE_API_KEY=$VITE_FIREBASE_API_KEY
+ENV VITE_FIREBASE_AUTH_DOMAIN=$VITE_FIREBASE_AUTH_DOMAIN
+ENV VITE_FIREBASE_PROJECT_ID=$VITE_FIREBASE_PROJECT_ID
+ENV VITE_FIREBASE_STORAGE_BUCKET=$VITE_FIREBASE_STORAGE_BUCKET
+ENV VITE_FIREBASE_MESSAGING_SENDER_ID=$VITE_FIREBASE_MESSAGING_SENDER_ID
+ENV VITE_FIREBASE_APP_ID=$VITE_FIREBASE_APP_ID
+ENV VITE_STRIPE_PUBLIC_KEY=$VITE_STRIPE_PUBLIC_KEY
+ENV VITE_STRIPE_STARTER_PRICE_ID=$VITE_STRIPE_STARTER_PRICE_ID
+ENV VITE_STRIPE_GROWTH_PRICE_ID=$VITE_STRIPE_GROWTH_PRICE_ID
+
 # Build the client and server
 RUN npm run build
 
 # Stage 2: Create the production image
-FROM node:20-slim
+FROM node:20-alpine
 
 WORKDIR /app
 
-# Copy package.json and package-lock.json
-COPY package.json package-lock.json ./
-
 # Install only production dependencies
+# We copy package files again and run install to ensure a clean production environment
+COPY package.json package-lock.json ./
 RUN npm install --omit=dev
 
 # Copy the built application from the builder stage
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/videos ./videos
 
 # Expose the port the app runs on
 EXPOSE 8080
 
 # Set the entrypoint to run the production server
-CMD ["npm", "run", "start"]
+CMD ["npm", "start"]

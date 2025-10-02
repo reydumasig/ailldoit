@@ -13,15 +13,16 @@ export interface ClientEnvironmentConfig {
 export function getClientEnvironment(): ClientEnvironmentConfig {
   const isDevelopment = import.meta.env.DEV;
   const isProduction = import.meta.env.PROD;
+  const hostname = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
   
   // Detect if we're on production domain
-  const isLiveDomain = window.location.hostname.includes('ailldoit.com');
+  const isLiveDomain = hostname.includes('app.ailldoit.com');
   
   // Use live keys for production domain, test keys for development
   const useTestKeys = isDevelopment || !isLiveDomain;
   
   console.log('🌍 Client Environment:', {
-    hostname: window.location.hostname,
+    hostname: hostname,
     isLiveDomain,
     useTestKeys,
     mode: isDevelopment ? 'development' : 'production'
@@ -30,7 +31,7 @@ export function getClientEnvironment(): ClientEnvironmentConfig {
   return {
     isDevelopment,
     isProduction,
-    domain: isLiveDomain ? 'app.ailldoit.com' : 'localhost',
+    domain: hostname,
     stripe: {
       publicKey: useTestKeys 
         ? import.meta.env.VITE_STRIPE_PUBLIC_KEY 

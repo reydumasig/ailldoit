@@ -213,7 +213,7 @@ The Ailldoit platform has successfully passed all critical production readiness 
 
 **Next Steps:**
 1. Deploy to app.ailldoit.com using Replit Deployments
-2. Monitor initial user interactions
+2. Monitor initial user interactions via Cloud Run logs and metrics
 3. Address minor TypeScript warnings in next iteration
 4. Plan bundle optimization for improved load times
 

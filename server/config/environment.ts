@@ -14,17 +14,18 @@ export interface EnvironmentConfig {
 export function getEnvironmentConfig(): EnvironmentConfig {
   const isDevelopment = process.env.NODE_ENV === 'development';
   const isProduction = process.env.NODE_ENV === 'production';
-  
+
   // Detect domain from environment or default
-  const isLiveDomain = process.env.NODE_ENV === 'production' && process.env.DOMAIN?.includes('ailldoit.com');
-  
+  const domain = process.env.DOMAIN || 'localhost';
+  const isLiveDomain = isProduction && domain.includes('app.ailldoit.com');
+
   // Use live keys for production domain, test keys for development
   const useTestKeys = isDevelopment || !isLiveDomain;
-  
+
   return {
     isDevelopment,
     isProduction,
-    domain: isLiveDomain ? 'app.ailldoit.com' : 'localhost',
+    domain,
     stripe: {
       secretKey: useTestKeys 
         ? process.env.STRIPE_SECRET_KEY! 
