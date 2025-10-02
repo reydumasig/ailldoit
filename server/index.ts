@@ -50,16 +50,42 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  const httpServer = await registerRoutes(app);
-
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
-  const { setupVite } = await import("./vite");
-  await setupVite(app, httpServer);
+  // CRITICAL: Set up static file serving BEFORE routes to avoid middleware conflicts
+  let httpServer;
+  
+  if (process.env.NODE_ENV === 'development') {
+    console.log('🔧 DEVELOPMENT: Setting up Vite...');
+    httpServer = await registerRoutes(app);
+    const { setupVite } = await import("./vite");
+    await setupVite(app, httpServer);
+  } else {
+    console.log('🚀 PRODUCTION: Setting up static file serving...');
+    // Production static file serving - BEFORE routes registration
+    const path = await import("path");
+    const fs = await import("fs");
+    
+    const distPath = path.resolve(process.cwd(), "dist/public");
+    console.log('📁 Static files path:', distPath);
+    
+    if (!fs.existsSync(distPath)) {
+      throw new Error(`Could not find the build directory: ${distPath}, make sure to build the client first`);
+    }
+    
+    // Serve static assets first (CSS, JS, images)
+    app.use('/assets', express.static(path.join(distPath, 'assets')));
+    app.use(express.static(distPath));
+    console.log('✅ Static file serving configured BEFORE routes');
+    
+    httpServer = await registerRoutes(app);
+    
+    // Catch-all route for SPA - AFTER all API routes
+    app.use("*", (_req, res) => {
+      res.sendFile(path.resolve(distPath, "index.html"));
+    });
+  }
 
   // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
+  // Other ports are firewalled. Default to 8080 if not specified.
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || '8080', 10);
@@ -68,6 +94,6 @@ app.use((req, res, next) => {
     host: "0.0.0.0",
     reusePort: true,
   }, () => {
-    console.log(`serving on port ${port}`);
+    console.log(`🌍 SERVER: serving on port ${port} (${process.env.NODE_ENV || 'development'})`);
   });
 })();

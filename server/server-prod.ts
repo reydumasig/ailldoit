@@ -52,6 +52,40 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // CRITICAL: Set up static file serving BEFORE routes to avoid middleware conflicts
+  console.log('🚀 PRODUCTION: Setting up static file serving...');
+  const distPath = path3.resolve(process.cwd(), "dist/public");
+  console.log('🔍 DIAGNOSTIC: Static file path resolution:');
+  console.log('  - process.cwd():', process.cwd());
+  console.log('  - Resolved distPath:', distPath);
+  console.log('  - Directory exists:', fs2.existsSync(distPath));
+  if (fs2.existsSync(distPath)) {
+    const files = fs2.readdirSync(distPath);
+    console.log('  - Files in directory:', files);
+    if (fs2.existsSync(path3.join(distPath, 'assets'))) {
+      const assetFiles = fs2.readdirSync(path3.join(distPath, 'assets'));
+      console.log('  - Asset files:', assetFiles);
+    }
+  }
+  
+  if (!fs2.existsSync(distPath)) {
+    console.error('❌ DIAGNOSTIC: Build directory not found!');
+    console.log('🔍 Checking alternative paths:');
+    const altPath1 = path3.resolve(import.meta.dirname, "public");
+    const altPath2 = path3.resolve(process.cwd(), "public");
+    console.log('  - Alternative path 1:', altPath1, 'exists:', fs2.existsSync(altPath1));
+    console.log('  - Alternative path 2:', altPath2, 'exists:', fs2.existsSync(altPath2));
+    
+    throw new Error(
+      `Could not find the build directory: ${distPath}, make sure to build the client first`
+    );
+  }
+  
+  // Serve static assets BEFORE routes registration
+  app.use('/assets', express2.static(path3.join(distPath, 'assets')));
+  app.use(express2.static(distPath));
+  console.log('✅ Static file serving configured BEFORE routes');
+
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -62,14 +96,7 @@ app.use((req, res, next) => {
     throw err;
   });
 
-  // Production-only static file serving
-  const distPath = path3.resolve(import.meta.dirname, "public");
-  if (!fs2.existsSync(distPath)) {
-    throw new Error(
-      `Could not find the build directory: ${distPath}, make sure to build the client first`
-    );
-  }
-  app.use(express2.static(distPath));
+  // Catch-all route for SPA - AFTER all API routes
   app.use("*", (_req, res) => {
     res.sendFile(path3.resolve(distPath, "index.html"));
   });
@@ -84,6 +111,12 @@ app.use((req, res, next) => {
     host: "0.0.0.0",
     reusePort: true,
   }, () => {
-    console.log(`serving on port ${port}`);
+    console.log(`🚀 PRODUCTION SERVER: serving on port ${port}`);
+    console.log(`🌍 Environment: NODE_ENV=${process.env.NODE_ENV}`);
+    console.log(`📁 Working directory: ${process.cwd()}`);
+    console.log(`📂 Static files served from: ${distPath}`);
   });
 })();
+
+
+

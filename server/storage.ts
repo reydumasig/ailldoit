@@ -67,8 +67,19 @@ export interface IStorage {
 export class DatabaseStorage implements IStorage {
   // User methods (Firebase Auth compatible)
   async getUser(id: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.id, id));
-    return user;
+    const startTime = Date.now();
+    console.log('🗄️ STORAGE: Looking up user by ID:', id);
+    
+    try {
+      const [user] = await db.select().from(users).where(eq(users.id, id));
+      const duration = Date.now() - startTime;
+      console.log('✅ STORAGE: User lookup by ID completed in', duration, 'ms, found:', !!user);
+      return user;
+    } catch (error: any) {
+      const duration = Date.now() - startTime;
+      console.error('❌ STORAGE: User lookup by ID failed after', duration, 'ms:', error.message);
+      throw error;
+    }
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
@@ -77,8 +88,19 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUserByFirebaseUid(firebaseUid: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.firebaseUid, firebaseUid));
-    return user;
+    const startTime = Date.now();
+    console.log('🗄️ STORAGE: Looking up user by Firebase UID:', firebaseUid);
+    
+    try {
+      const [user] = await db.select().from(users).where(eq(users.firebaseUid, firebaseUid));
+      const duration = Date.now() - startTime;
+      console.log('✅ STORAGE: User lookup completed in', duration, 'ms, found:', !!user);
+      return user;
+    } catch (error: any) {
+      const duration = Date.now() - startTime;
+      console.error('❌ STORAGE: User lookup failed after', duration, 'ms:', error.message);
+      throw error;
+    }
   }
 
   async upsertUser(userData: UpsertUser): Promise<User> {

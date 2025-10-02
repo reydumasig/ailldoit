@@ -16,6 +16,10 @@ import { z } from "zod";
 import crypto from 'crypto';
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  console.log('🚀 DIAGNOSTIC: Starting route registration...');
+  console.log('🌍 NODE_ENV:', process.env.NODE_ENV);
+  console.log('📁 Current working directory:', process.cwd());
+  
   // Add middleware to set the Cross-Origin-Opener-Policy header.
   // This is the recommended fix for the "window.close" error with OAuth popups.
   app.use((req, res, next) => {
@@ -28,25 +32,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Health check endpoint for Cloud Run
   app.get('/api/health', (req, res) => {
+    console.log('🏥 DIAGNOSTIC: Health check requested');
     res.status(200).json({ 
       status: 'healthy', 
       timestamp: new Date().toISOString(),
-      uptime: process.uptime()
+      uptime: process.uptime(),
+      nodeEnv: process.env.NODE_ENV,
+      cwd: process.cwd()
     });
   });
 
-  // IMPORTANT: Serve static assets first without authentication
-  // This prevents 401 errors on CSS/JS files in production and staging
-  if (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging') {
-    const express = await import('express');
-    const path = await import('path');
-    const fs = await import('fs');
-    
-    const distPath = path.resolve(path.dirname(new URL(import.meta.url).pathname), "public");
-    if (fs.existsSync(distPath)) {
-      app.use('/assets', express.default.static(path.join(distPath, 'assets')));
-    }
-  }
+  // REMOVED: Static asset serving moved to server-prod.ts to avoid conflicts
+  // Static files are now properly handled by the main server configuration
+  console.log('✅ DIAGNOSTIC: Static asset serving handled by main server config');
 
   // Simple test route for OAuth
   app.get('/api/test-meta-oauth', async (req, res) => {
@@ -77,18 +75,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Auth routes
   app.post('/api/auth/verify', authenticateToken, async (req, res) => {
+    const startTime = Date.now();
+    console.log('🔐 AUTH VERIFY: Starting user verification process');
+    
     try {
+      console.log('👤 AUTH VERIFY: User from middleware:', req.user?.id, req.user?.email);
+      
       // User was verified and added to req.user by middleware
+      console.log('🗄️ AUTH VERIFY: Fetching user from storage...');
       const user = await storage.getUser(req.user!.id);
+      console.log('✅ AUTH VERIFY: User fetched from storage:', user?.id, user?.email);
       
       // Track user session for performance monitoring
+      console.log('📊 AUTH VERIFY: Tracking user session...');
       const { PerformanceMonitor } = await import("./services/performance-monitor");
       PerformanceMonitor.trackUserSession(req.user!.id);
       
+      const duration = Date.now() - startTime;
+      console.log('✅ AUTH VERIFY: Verification completed in', duration, 'ms');
       res.json(user);
-    } catch (error) {
-      console.error('Auth verify error:', error);
-      res.status(500).json({ message: 'Failed to verify user' });
+    } catch (error: any) {
+      const duration = Date.now() - startTime;
+      console.error('❌ AUTH VERIFY: Verification failed after', duration, 'ms');
+      console.error('🔍 AUTH VERIFY: Error details:', {
+        message: error.message,
+        name: error.name,
+        stack: error.stack?.split('\n').slice(0, 3).join('\n'),
+        userId: req.user?.id
+      });
+      res.status(500).json({ 
+        message: 'Failed to verify user',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     }
   });
 
@@ -1411,7 +1429,7 @@ ${campaign.brief}`;
   // 📦 CONTENT ROUTES (ASSET HANDLING)
 
   // Upload image/video manually for campaign use
-  app.post('/assets/upload', authenticateToken, async (req, res) => {
+  app.post('/api/assets/upload', authenticateToken, async (req, res) => {
     try {
       // For now, return a placeholder - this would integrate with multer for file uploads
       res.status(501).json({ 
@@ -1425,7 +1443,7 @@ ${campaign.brief}`;
   });
 
   // Retrieve asset metadata
-  app.get('/assets/:id', authenticateToken, async (req, res) => {
+  app.get('/api/assets/:id', authenticateToken, async (req, res) => {
     try {
       const assetId = parseInt(req.params.id);
       

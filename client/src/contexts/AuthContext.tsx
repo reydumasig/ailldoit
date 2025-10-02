@@ -9,6 +9,7 @@ import {
   signInWithPopup
 } from 'firebase/auth';
 import { auth } from '@/config/firebase';
+import type { Auth } from 'firebase/auth';
 import { apiRequest } from '@/lib/queryClient';
 
 interface AuthUser {
@@ -42,42 +43,118 @@ export function useAuth() {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authAttempts, setAuthAttempts] = useState(0);
+  const maxAuthAttempts = 3;
 
   useEffect(() => {
+    // Add a safety timeout to prevent infinite loading
+    const safetyTimeout = setTimeout(() => {
+      console.error('⏰ SAFETY TIMEOUT: Auth initialization took too long, forcing completion');
+      setLoading(false);
+    }, 15000); // 15 second safety timeout
+
+    // Clear the safety timeout when auth completes normally
+    const clearSafetyTimeout = () => {
+      clearTimeout(safetyTimeout);
+    };
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser: User | null) => {
+      console.log('🔍 Auth state changed:', firebaseUser ? 'User logged in' : 'No user');
+      console.log('🕐 Auth state change timestamp:', new Date().toISOString());
+      console.log('🔄 Auth attempts so far:', authAttempts);
+      
+      // Circuit breaker: if too many failed attempts, stop trying
+      if (authAttempts >= maxAuthAttempts) {
+        console.error('🚫 CIRCUIT BREAKER: Too many auth attempts, stopping to prevent infinite loop');
+        clearSafetyTimeout();
+        setLoading(false);
+        return;
+      }
+      
       try {
         if (firebaseUser) {
-          // Get Firebase ID token
-          const idToken = await firebaseUser.getIdToken();
+          console.log('🔑 Verifying user with backend...');
+          console.log('👤 Firebase user UID:', firebaseUser.uid);
+          console.log('📧 Firebase user email:', firebaseUser.email);
           
-          // Send token to backend for user creation/update
-          const response = await fetch('/api/auth/verify', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${idToken}`,
-              'Content-Type': 'application/json',
-            },
-          });
+          // Add timeout to prevent hanging
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => {
+            console.error('⏰ Backend verification timeout after 10 seconds');
+            controller.abort();
+          }, 10000);
           
-          if (!response.ok) {
-            throw new Error('Failed to verify user');
+          try {
+            // Get Firebase ID token
+            console.log('🎫 Getting Firebase ID token...');
+            const idToken = await firebaseUser.getIdToken();
+            console.log('✅ Firebase ID token obtained, length:', idToken.length);
+            
+            // Send token to backend for user creation/update
+            console.log('📡 Sending verification request to backend...');
+            const response = await fetch('/api/auth/verify', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${idToken}`,
+                'Content-Type': 'application/json',
+              },
+              signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
+            console.log('📥 Backend response received:', response.status, response.statusText);
+            
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error('❌ Backend verification failed:', response.status, response.statusText, errorText);
+              throw new Error(`Failed to verify user: ${response.status} - ${errorText}`);
+            }
+            
+            console.log('📋 Parsing backend response...');
+            const userData = await response.json();
+            console.log('✅ User verified successfully:', userData.email, 'User ID:', userData.id);
+            
+            setUser(userData);
+          } catch (fetchError: any) {
+            clearTimeout(timeoutId);
+            if (fetchError.name === 'AbortError') {
+              console.error('⏰ Backend verification request timed out');
+              throw new Error('Backend verification timed out - server may be down');
+            }
+            throw fetchError;
           }
-          
-          const userData = await response.json();
-          
-          setUser(userData);
         } else {
+          console.log('👤 No Firebase user, showing login');
           setUser(null);
         }
-      } catch (error) {
-        console.error('Auth state change error:', error);
+      } catch (error: any) {
+        console.error('❌ Auth state change error:', error);
+        console.error('🔍 Error details:', {
+          message: error.message,
+          name: error.name,
+          stack: error.stack
+        });
+        
+        // Increment auth attempts counter
+        setAuthAttempts(prev => prev + 1);
+        
+        // If there's an error, sign out the user to clear any invalid state
+        if (firebaseUser && authAttempts < maxAuthAttempts - 1) {
+          console.log('🚪 Signing out due to verification error (attempt', authAttempts + 1, 'of', maxAuthAttempts, ')');
+          await firebaseSignOut(auth);
+        }
         setUser(null);
       } finally {
+        console.log('✅ Auth loading complete at:', new Date().toISOString());
+        clearSafetyTimeout();
         setLoading(false);
       }
     });
 
-    return unsubscribe;
+    // Return cleanup function that clears both the auth listener and safety timeout
+    return () => {
+      clearSafetyTimeout();
+      unsubscribe();
+    };
   }, []);
 
   const signIn = async (email: string, password: string) => {
