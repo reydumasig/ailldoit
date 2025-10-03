@@ -354,12 +354,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
           metadata: { campaignType: campaign.campaignType }
         });
 
+        // Add comprehensive logging for AI service debugging
+        console.log(`🔍 ROUTE DEBUG: About to call aiService.generateAdContent`);
+        console.log(`🔍 ROUTE DEBUG: Campaign brief: "${campaign.brief.substring(0, 100)}..."`);
+        console.log(`🔍 ROUTE DEBUG: Platform: ${campaign.platform}, Language: ${campaign.language}`);
+        console.log(`🔍 ROUTE DEBUG: User ID: ${req.user!.id}`);
+        console.log(`🔍 ROUTE DEBUG: GEMINI_API_KEY present: ${!!process.env.GEMINI_API_KEY}`);
+        console.log(`🔍 ROUTE DEBUG: OPENAI_API_KEY present: ${!!process.env.OPENAI_API_KEY}`);
+        
         const generatedContent = await aiService.generateAdContent(
           campaign.brief, 
           campaign.platform, 
           campaign.language,
           req.user!.id
         );
+        
+        console.log(`🔍 ROUTE DEBUG: aiService.generateAdContent completed successfully`);
         
         // Track generation completion
         PerformanceMonitor.endGeneration(req.user!.id, 'campaignGeneration', 8);

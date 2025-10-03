@@ -1,7 +1,12 @@
 import { OpenAI } from 'openai';
+import { GoogleGenAI } from '@google/genai';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
+});
+
+const gemini = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY,
 });
 
 interface PromptBlock {
@@ -123,27 +128,67 @@ export class LinkedPromptService {
 
   async analyzeBrief(brief: string, platform: string, language: string): Promise<BriefAnalysis> {
     try {
-      const response = await openai.chat.completions.create({
-        model: "gpt-4-turbo",
-        messages: [
-          {
-            role: "system",
-            content: `Analyze this product brief and extract key metadata for semantic matching. 
-            Return JSON with: category, audience, platform, tone, style, keywords.
-            Categories: skincare, food, tech, fashion, lifestyle, beauty, wellness, gadgets, snacks, beverage
-            Audiences: gen-z, millennials, professionals, parents, students, commuters, travelers
-            Tones: authentic, luxury, playful, professional, natural, eco-friendly, trendy, warm
-            Styles: product-demo, lifestyle, educational, testimonial, behind-scenes`
-          },
-          {
-            role: "user",
-            content: `Brief: "${brief}"\nPlatform: ${platform}\nLanguage: ${language}`
-          }
-        ],
-        response_format: { type: "json_object" }
-      });
+      const prompt = `Analyze this product brief and extract key metadata for semantic matching. 
+      Return JSON with: category, audience, platform, tone, style, keywords.
+      Categories: skincare, food, tech, fashion, lifestyle, beauty, wellness, gadgets, snacks, beverage
+      Audiences: gen-z, millennials, professionals, parents, students, commuters, travelers
+      Tones: authentic, luxury, playful, professional, natural, eco-friendly, trendy, warm
+      Styles: product-demo, lifestyle, educational, testimonial, behind-scenes
+      
+      Brief: "${brief}"
+      Platform: ${platform}
+      Language: ${language}`;
 
-      const result = JSON.parse(response.choices[0].message.content || '{}');
+      // Try Gemini first (primary provider)
+      if (process.env.GEMINI_API_KEY) {
+        try {
+          console.log(`🧠 LINKED PROMPT: Using Gemini for brief analysis`);
+          const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+          const result = await model.generateContent(prompt);
+          const response = await result.response;
+          const content = response.text();
+          
+          if (content) {
+            console.log(`✅ LINKED PROMPT: Gemini brief analysis successful`);
+            const parsed = JSON.parse(content);
+            return {
+              category: parsed.category || 'lifestyle',
+              audience: parsed.audience || 'millennials',
+              platform: parsed.platform || platform,
+              tone: parsed.tone || 'authentic',
+              style: parsed.style || 'lifestyle',
+              keywords: parsed.keywords || []
+            };
+          }
+        } catch (geminiError) {
+          console.error('❌ LINKED PROMPT: Gemini brief analysis failed, trying OpenAI:', geminiError);
+        }
+      }
+      
+      // Fallback to OpenAI if Gemini fails
+      if (process.env.OPENAI_API_KEY) {
+        console.log(`🔄 LINKED PROMPT: Using OpenAI for brief analysis`);
+        const response = await openai.chat.completions.create({
+          model: "gpt-4-turbo",
+          messages: [
+            {
+              role: "system",
+              content: `Analyze this product brief and extract key metadata for semantic matching. 
+              Return JSON with: category, audience, platform, tone, style, keywords.
+              Categories: skincare, food, tech, fashion, lifestyle, beauty, wellness, gadgets, snacks, beverage
+              Audiences: gen-z, millennials, professionals, parents, students, commuters, travelers
+              Tones: authentic, luxury, playful, professional, natural, eco-friendly, trendy, warm
+              Styles: product-demo, lifestyle, educational, testimonial, behind-scenes`
+            },
+            {
+              role: "user",
+              content: `Brief: "${brief}"\nPlatform: ${platform}\nLanguage: ${language}`
+            }
+          ],
+          response_format: { type: "json_object" }
+        });
+
+        const result = JSON.parse(response.choices[0].message.content || '{}');
       return {
         category: result.category || 'lifestyle',
         audience: result.audience || 'millennials',
@@ -200,35 +245,77 @@ export class LinkedPromptService {
 
   async generateCustomPrompt(analysis: BriefAnalysis, brief: string): Promise<string> {
     try {
-      const response = await openai.chat.completions.create({
-        model: "gpt-4-turbo",
-        messages: [
-          {
-            role: "system",
-            content: `Generate a cinematic visual prompt for AI image/video generation based on the campaign brief.
-            
-            Style: ${analysis.style}
-            Tone: ${analysis.tone}
-            Platform: ${analysis.platform}
-            Audience: ${analysis.audience}
-            
-            Create a detailed prompt with:
-            - Camera angle/shot type
-            - Setting/environment
-            - Subject interaction
-            - Lighting conditions
-            - Mood/atmosphere
-            
-            Keep it under 100 words and focus on visual storytelling.`
-          },
-          {
-            role: "user",
-            content: `Campaign brief: "${brief}"`
-          }
-        ]
-      });
+      const prompt = `Generate a cinematic visual prompt for AI image/video generation based on the campaign brief.
+      
+      Style: ${analysis.style}
+      Tone: ${analysis.tone}
+      Platform: ${analysis.platform}
+      Audience: ${analysis.audience}
+      
+      Create a detailed prompt with:
+      - Camera angle/shot type
+      - Setting/environment
+      - Subject interaction
+      - Lighting conditions
+      - Mood/atmosphere
+      
+      Keep it under 100 words and focus on visual storytelling.
+      
+      Campaign brief: "${brief}"`;
 
-      return response.choices[0].message.content || 'A cinematic product showcase in natural lighting';
+      // Try Gemini first (primary provider)
+      if (process.env.GEMINI_API_KEY) {
+        try {
+          console.log(`🧠 LINKED PROMPT: Using Gemini for custom prompt generation`);
+          const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+          const result = await model.generateContent(prompt);
+          const response = await result.response;
+          const content = response.text();
+          
+          if (content) {
+            console.log(`✅ LINKED PROMPT: Gemini custom prompt generation successful`);
+            return content;
+          }
+        } catch (geminiError) {
+          console.error('❌ LINKED PROMPT: Gemini custom prompt failed, trying OpenAI:', geminiError);
+        }
+      }
+      
+      // Fallback to OpenAI if Gemini fails
+      if (process.env.OPENAI_API_KEY) {
+        console.log(`🔄 LINKED PROMPT: Using OpenAI for custom prompt generation`);
+        const response = await openai.chat.completions.create({
+          model: "gpt-4-turbo",
+          messages: [
+            {
+              role: "system",
+              content: `Generate a cinematic visual prompt for AI image/video generation based on the campaign brief.
+              
+              Style: ${analysis.style}
+              Tone: ${analysis.tone}
+              Platform: ${analysis.platform}
+              Audience: ${analysis.audience}
+              
+              Create a detailed prompt with:
+              - Camera angle/shot type
+              - Setting/environment
+              - Subject interaction
+              - Lighting conditions
+              - Mood/atmosphere
+              
+              Keep it under 100 words and focus on visual storytelling.`
+            },
+            {
+              role: "user",
+              content: `Campaign brief: "${brief}"`
+            }
+          ]
+        });
+
+        return response.choices[0].message.content || 'A cinematic product showcase in natural lighting';
+      }
+      
+      return 'A cinematic product showcase in natural lighting';
     } catch (error) {
       console.error('Error generating custom prompt:', error);
       return 'A cinematic product showcase in natural lighting';

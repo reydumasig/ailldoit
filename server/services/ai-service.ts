@@ -27,15 +27,27 @@ export class AIService {
       console.log(`📝 AI SERVICE: Brief: "${brief.substring(0, 100)}..."`);
       console.log(`🎯 AI SERVICE: Platform: ${platform}, Language: ${language}`);
       console.log(`🔑 AI SERVICE: Gemini API Key present: ${!!process.env.GEMINI_API_KEY}`);
+      console.log(`🔑 AI SERVICE: Gemini API Key value: ${process.env.GEMINI_API_KEY ? 'SET' : 'NOT SET'}`);
+      console.log(`🔑 AI SERVICE: OpenAI API Key present: ${!!process.env.OPENAI_API_KEY}`);
       
       // Try Gemini first (primary provider)
       if (process.env.GEMINI_API_KEY) {
         try {
           console.log(`🧠 AI SERVICE: Using Gemini as primary provider for ${platform}/${language}`);
-          return await this.generateAdContentWithGemini(brief, platform, language, userId);
+          console.log(`🔍 AI SERVICE: Calling generateAdContentWithGemini...`);
+          const result = await this.generateAdContentWithGemini(brief, platform, language, userId);
+          console.log(`✅ AI SERVICE: Gemini generation successful`);
+          return result;
         } catch (geminiError) {
           console.error('❌ AI SERVICE: Gemini primary failed, trying OpenAI fallback:', geminiError);
+          console.error('❌ AI SERVICE: Gemini error details:', {
+            message: geminiError?.message,
+            code: geminiError?.code,
+            type: geminiError?.type
+          });
         }
+      } else {
+        console.warn('⚠️ AI SERVICE: GEMINI_API_KEY not available, skipping Gemini');
       }
       
       // Fallback to OpenAI if Gemini fails
@@ -110,24 +122,38 @@ export class AIService {
 
   // Fallback method using Gemini for text generation
   private async generateAdContentWithGemini(brief: string, platform: string, language: string, userId?: string): Promise<GeneratedContent> {
-    console.log(`🔄 AI SERVICE: Using Gemini fallback for text generation`);
+    console.log(`🔄 AI SERVICE: Using Gemini for text generation`);
+    console.log(`🔍 AI SERVICE: Gemini method - Brief: "${brief.substring(0, 50)}..."`);
+    console.log(`🔍 AI SERVICE: Gemini method - Platform: ${platform}, Language: ${language}`);
     
     if (!process.env.GEMINI_API_KEY) {
+      console.error('❌ AI SERVICE: GEMINI_API_KEY not available for Gemini generation');
       throw new Error('GEMINI_API_KEY not available for fallback');
     }
     
+    console.log(`🔍 AI SERVICE: Initializing Gemini model...`);
     const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
     
+    console.log(`🔍 AI SERVICE: Building content prompt...`);
     const prompt = this.buildContentPrompt(brief, platform, language);
+    console.log(`🔍 AI SERVICE: Prompt length: ${prompt.length} characters`);
     
+    console.log(`🔍 AI SERVICE: Calling Gemini API...`);
     const result = await model.generateContent(prompt);
     const response = await result.response;
     const content = response.text();
     
-    if (!content) throw new Error('No content generated from Gemini');
+    if (!content) {
+      console.error('❌ AI SERVICE: No content generated from Gemini');
+      throw new Error('No content generated from Gemini');
+    }
     
-    console.log(`✅ AI SERVICE: Gemini fallback successful`);
-    return this.parseAIResponse(content, platform);
+    console.log(`✅ AI SERVICE: Gemini generation successful, content length: ${content.length}`);
+    console.log(`🔍 AI SERVICE: Parsing AI response...`);
+    const parsedContent = this.parseAIResponse(content, platform);
+    console.log(`✅ AI SERVICE: Response parsed successfully`);
+    
+    return parsedContent;
   }
 
   // Fallback method for baseline generation (original logic) - now uses Gemini first

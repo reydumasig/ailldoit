@@ -209,24 +209,57 @@ export class BriefTemplateService {
         "category": "category name"
       }`;
 
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: [
-          {
-            role: "system",
-            content: "You are an expert social media content strategist who creates viral brief templates."
-          },
-          {
-            role: "user",
-            content: prompt
+      // Try Gemini first (primary provider)
+      if (process.env.GEMINI_API_KEY) {
+        try {
+          console.log(`🧠 BRIEF TEMPLATE: Using Gemini for template generation`);
+          const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+          const result = await model.generateContent(prompt);
+          const response = await result.response;
+          const content = response.text();
+          
+          if (content) {
+            console.log(`✅ BRIEF TEMPLATE: Gemini template generation successful`);
+            const parsed = JSON.parse(content);
+            return {
+              id: `generated_${Date.now()}`,
+              title: parsed.title || "Generated Template",
+              prompt: parsed.prompt || "",
+              tags: parsed.tags || [],
+              tone: parsed.tone || "engaging",
+              category: parsed.category || "general",
+              usageCount: 0,
+              rating: 0,
+              createdAt: new Date(),
+              updatedAt: new Date()
+            };
           }
-        ],
-        temperature: 0.8,
-        max_tokens: 1000,
-      });
+        } catch (geminiError) {
+          console.error('❌ BRIEF TEMPLATE: Gemini template generation failed, trying OpenAI:', geminiError);
+        }
+      }
+      
+      // Fallback to OpenAI if Gemini fails
+      if (process.env.OPENAI_API_KEY) {
+        console.log(`🔄 BRIEF TEMPLATE: Using OpenAI for template generation`);
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [
+            {
+              role: "system",
+              content: "You are an expert social media content strategist who creates viral brief templates."
+            },
+            {
+              role: "user",
+              content: prompt
+            }
+          ],
+          temperature: 0.8,
+          max_tokens: 1000,
+        });
 
-      const response = completion.choices[0]?.message?.content;
-      if (!response) return null;
+        const response = completion.choices[0]?.message?.content;
+        if (!response) return null;
 
       const parsed = JSON.parse(response);
       

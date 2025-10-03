@@ -1,8 +1,13 @@
 import { storage } from '../storage';
 import { OpenAI } from 'openai';
+import { GoogleGenAI } from '@google/genai';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
+});
+
+const gemini = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY,
 });
 
 export interface ContentFeatures {
@@ -30,7 +35,7 @@ export interface PerformanceMetrics {
 export class LearningService {
   
   /**
-   * Extract features from content text using AI analysis
+   * Extract features from content text using AI analysis - now uses Gemini first
    */
   async extractContentFeatures(contentText: string, contentType: string): Promise<ContentFeatures> {
     try {
@@ -51,26 +56,50 @@ Analyze and return a JSON object with these exact fields:
   "structure": describe the content structure pattern (e.g., "hook-benefit-cta", "question-answer", "story-lesson")
 }`;
 
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: [
-          {
-            role: "system",
-            content: "You are an expert content analyst. Extract features from social media content and return valid JSON only."
-          },
-          {
-            role: "user",
-            content: prompt
+      // Try Gemini first (primary provider)
+      if (process.env.GEMINI_API_KEY) {
+        try {
+          console.log(`🧠 LEARNING SERVICE: Using Gemini for feature extraction`);
+          const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+          const result = await model.generateContent(prompt);
+          const response = await result.response;
+          const content = response.text();
+          
+          if (content) {
+            console.log(`✅ LEARNING SERVICE: Gemini feature extraction successful`);
+            return JSON.parse(content) as ContentFeatures;
           }
-        ],
-        temperature: 0.1,
-        response_format: { type: "json_object" }
-      });
+        } catch (geminiError) {
+          console.error('❌ LEARNING SERVICE: Gemini feature extraction failed, trying OpenAI:', geminiError);
+        }
+      }
+      
+      // Fallback to OpenAI if Gemini fails
+      if (process.env.OPENAI_API_KEY) {
+        console.log(`🔄 LEARNING SERVICE: Using OpenAI for feature extraction`);
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [
+            {
+              role: "system",
+              content: "You are an expert content analyst. Extract features from social media content and return valid JSON only."
+            },
+            {
+              role: "user",
+              content: prompt
+            }
+          ],
+          temperature: 0.1,
+          response_format: { type: "json_object" }
+        });
 
-      const response = completion.choices[0]?.message?.content;
-      if (!response) throw new Error('No response from AI');
+        const response = completion.choices[0]?.message?.content;
+        if (!response) throw new Error('No response from AI');
 
-      return JSON.parse(response) as ContentFeatures;
+        return JSON.parse(response) as ContentFeatures;
+      }
+      
+      throw new Error('No AI providers available for feature extraction');
     } catch (error) {
       console.error('Feature extraction failed:', error);
       // Fallback to basic analysis

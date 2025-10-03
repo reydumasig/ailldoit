@@ -222,23 +222,47 @@ Generate a compelling, detailed prompt that combines all these elements naturall
 
 Return only the prompt text, no additional formatting or explanation.`;
 
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: [
-          {
-            role: "system",
-            content: "You are an expert prompt engineer specializing in creating high-quality prompts for AI image generation. Focus on vivid descriptions, technical details, and atmospheric elements."
-          },
-          {
-            role: "user",
-            content: prompt
+      // Try Gemini first (primary provider)
+      if (process.env.GEMINI_API_KEY) {
+        try {
+          console.log(`🧠 PROMPT SELECTOR: Using Gemini for custom prompt generation`);
+          const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+          const result = await model.generateContent(prompt);
+          const response = await result.response;
+          const content = response.text();
+          
+          if (content) {
+            console.log(`✅ PROMPT SELECTOR: Gemini custom prompt generation successful`);
+            return content;
           }
-        ],
-        temperature: 0.8,
-        max_tokens: 300,
-      });
+        } catch (geminiError) {
+          console.error('❌ PROMPT SELECTOR: Gemini custom prompt failed, trying OpenAI:', geminiError);
+        }
+      }
+      
+      // Fallback to OpenAI if Gemini fails
+      if (process.env.OPENAI_API_KEY) {
+        console.log(`🔄 PROMPT SELECTOR: Using OpenAI for custom prompt generation`);
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [
+            {
+              role: "system",
+              content: "You are an expert prompt engineer specializing in creating high-quality prompts for AI image generation. Focus on vivid descriptions, technical details, and atmospheric elements."
+            },
+            {
+              role: "user",
+              content: prompt
+            }
+          ],
+          temperature: 0.8,
+          max_tokens: 300,
+        });
 
-      return completion.choices[0]?.message?.content || "Unable to generate prompt";
+        return completion.choices[0]?.message?.content || "Unable to generate prompt";
+      }
+      
+      throw new Error('No AI providers available for custom prompt generation');
     } catch (error) {
       console.error('Error generating guided prompt:', error);
       return `${options.cameraView} of ${options.subject} in ${options.sceneType}, ${options.tone} mood with ${options.lighting} lighting, ${options.style} style`;
@@ -296,26 +320,63 @@ Return JSON format:
   "style": "artistic style"
 }`;
 
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: [
-          {
-            role: "system", 
-            content: "You are a creative prompt engineer who generates unique, high-quality prompts for AI image generation."
-          },
-          {
-            role: "user",
-            content: prompt
+      // Try Gemini first (primary provider)
+      if (process.env.GEMINI_API_KEY) {
+        try {
+          console.log(`🧠 PROMPT SELECTOR: Using Gemini for random prompt generation`);
+          const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+          const result = await model.generateContent(prompt);
+          const response = await result.response;
+          const content = response.text();
+          
+          if (content) {
+            console.log(`✅ PROMPT SELECTOR: Gemini random prompt generation successful`);
+            const parsed = JSON.parse(content);
+            return {
+              id: `generated_${Date.now()}`,
+              title: parsed.title || "Generated Prompt",
+              category: category,
+              prompt: parsed.prompt || "",
+              tags: parsed.tags || [],
+              shotType: parsed.shotType || "medium shot",
+              tone: parsed.tone || "neutral",
+              subject: parsed.subject || "general",
+              style: parsed.style || "realistic",
+              difficulty: 'intermediate' as const,
+              usageCount: 0,
+              rating: 0,
+              createdAt: new Date(),
+              updatedAt: new Date()
+            };
           }
-        ],
-        temperature: 0.9,
-        max_tokens: 400,
-      });
+        } catch (geminiError) {
+          console.error('❌ PROMPT SELECTOR: Gemini random prompt failed, trying OpenAI:', geminiError);
+        }
+      }
+      
+      // Fallback to OpenAI if Gemini fails
+      if (process.env.OPENAI_API_KEY) {
+        console.log(`🔄 PROMPT SELECTOR: Using OpenAI for random prompt generation`);
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [
+            {
+              role: "system", 
+              content: "You are a creative prompt engineer who generates unique, high-quality prompts for AI image generation."
+            },
+            {
+              role: "user",
+              content: prompt
+            }
+          ],
+          temperature: 0.9,
+          max_tokens: 400,
+        });
 
-      const response = completion.choices[0]?.message?.content;
-      if (!response) return null;
+        const response = completion.choices[0]?.message?.content;
+        if (!response) return null;
 
-      const parsed = JSON.parse(response);
+        const parsed = JSON.parse(response);
       
       return {
         id: `random-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -363,23 +424,47 @@ Create a new prompt that:
 
 Return only the remixed prompt text, no additional formatting.`;
 
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: [
-          {
-            role: "system",
-            content: "You are a creative prompt remixer who takes existing prompts and creates fresh, innovative variations while maintaining quality."
-          },
-          {
-            role: "user",
-            content: prompt
+      // Try Gemini first (primary provider)
+      if (process.env.GEMINI_API_KEY) {
+        try {
+          console.log(`🧠 PROMPT SELECTOR: Using Gemini for prompt remixing`);
+          const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+          const result = await model.generateContent(prompt);
+          const response = await result.response;
+          const content = response.text();
+          
+          if (content) {
+            console.log(`✅ PROMPT SELECTOR: Gemini prompt remixing successful`);
+            return content;
           }
-        ],
-        temperature: 0.8,
-        max_tokens: 300,
-      });
+        } catch (geminiError) {
+          console.error('❌ PROMPT SELECTOR: Gemini prompt remixing failed, trying OpenAI:', geminiError);
+        }
+      }
+      
+      // Fallback to OpenAI if Gemini fails
+      if (process.env.OPENAI_API_KEY) {
+        console.log(`🔄 PROMPT SELECTOR: Using OpenAI for prompt remixing`);
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [
+            {
+              role: "system",
+              content: "You are a creative prompt remixer who takes existing prompts and creates fresh, innovative variations while maintaining quality."
+            },
+            {
+              role: "user",
+              content: prompt
+            }
+          ],
+          temperature: 0.8,
+          max_tokens: 300,
+        });
 
-      return completion.choices[0]?.message?.content || originalPrompt;
+        return completion.choices[0]?.message?.content || originalPrompt;
+      }
+      
+      return originalPrompt;
     } catch (error) {
       console.error('Error remixing prompt:', error);
       return originalPrompt;
