@@ -22,6 +22,10 @@ export class AIService {
   // Generate ad content using OpenAI GPT-4 with learning optimization
   async generateAdContent(brief: string, platform: string, language: string, userId?: string): Promise<GeneratedContent> {
     try {
+      console.log(`🚀 AI SERVICE: Starting content generation for user ${userId || 'anonymous'}`);
+      console.log(`📝 AI SERVICE: Brief: "${brief.substring(0, 100)}..."`);
+      console.log(`🎯 AI SERVICE: Platform: ${platform}, Language: ${language}`);
+      
       // Get optimized prompts based on learning patterns
       const { systemPrompt, userPrompt } = await learningService.getOptimizedPrompt(
         platform, 
@@ -30,7 +34,8 @@ export class AIService {
         brief
       );
       
-      console.log(`🧠 Using AI learning-enhanced prompts for ${platform}/${language}`);
+      console.log(`🧠 AI SERVICE: Using AI learning-enhanced prompts for ${platform}/${language}`);
+      console.log(`🔑 AI SERVICE: OpenAI API Key present: ${!!process.env.OPENAI_API_KEY}`);
       
       const completion = await openai.chat.completions.create({
         model: "gpt-4o",
@@ -48,6 +53,7 @@ export class AIService {
         max_tokens: 2000,
       });
 
+      console.log(`✅ AI SERVICE: OpenAI API call successful`);
       const content = completion.choices[0]?.message?.content;
       if (!content) throw new Error('No content generated');
 
@@ -55,15 +61,65 @@ export class AIService {
       
       // Log generation for future learning (if userId provided)
       if (userId) {
-        console.log(`📝 Content generated with learning insights for user ${userId}`);
+        console.log(`📝 AI SERVICE: Content generated with learning insights for user ${userId}`);
       }
 
       return generatedContent;
-    } catch (error) {
-      console.error('AI content generation failed:', error);
+    } catch (error: any) {
+      console.error('❌ AI SERVICE: Content generation failed:', error);
+      console.error('❌ AI SERVICE: Error type:', error?.constructor?.name);
+      console.error('❌ AI SERVICE: Error message:', error?.message);
+      console.error('❌ AI SERVICE: Error code:', error?.code);
+      console.error('❌ AI SERVICE: Error type (OpenAI):', error?.type);
+      
+      // Check for specific OpenAI errors
+      if (error?.code === 'insufficient_quota') {
+        console.error('💳 AI SERVICE: OpenAI quota exceeded - this is the root cause!');
+        throw new Error(`OpenAI quota exceeded: ${error.message}`);
+      }
+      
+      if (error?.type === 'insufficient_quota') {
+        console.error('💳 AI SERVICE: OpenAI quota exceeded (type) - this is the root cause!');
+        throw new Error(`OpenAI quota exceeded: ${error.message}`);
+      }
+      
+      console.log('🔄 AI SERVICE: Attempting fallback to baseline generation...');
+      
+      // If it's a quota error, try Gemini as fallback
+      if (error?.code === 'insufficient_quota' || error?.type === 'insufficient_quota') {
+        console.log('🔄 AI SERVICE: Trying Gemini as fallback for text generation...');
+        try {
+          return await this.generateAdContentWithGemini(brief, platform, language, userId);
+        } catch (geminiError) {
+          console.error('❌ AI SERVICE: Gemini fallback also failed:', geminiError);
+        }
+      }
+      
       // Fallback to baseline generation
       return this.generateAdContentBaseline(brief, platform, language);
     }
+  }
+
+  // Fallback method using Gemini for text generation
+  private async generateAdContentWithGemini(brief: string, platform: string, language: string, userId?: string): Promise<GeneratedContent> {
+    console.log(`🔄 AI SERVICE: Using Gemini fallback for text generation`);
+    
+    if (!process.env.GEMINI_API_KEY) {
+      throw new Error('GEMINI_API_KEY not available for fallback');
+    }
+    
+    const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+    
+    const prompt = this.buildContentPrompt(brief, platform, language);
+    
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const content = response.text();
+    
+    if (!content) throw new Error('No content generated from Gemini');
+    
+    console.log(`✅ AI SERVICE: Gemini fallback successful`);
+    return this.parseAIResponse(content, platform);
   }
 
   // Fallback method for baseline generation (original logic)

@@ -449,16 +449,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
           variants
         }, req.user!.id);
         
-      } catch (aiError) {
-        console.error('AI generation failed:', aiError);
+      } catch (aiError: any) {
+        console.error('❌ CAMPAIGN GENERATE: AI generation failed:', aiError);
+        console.error('❌ CAMPAIGN GENERATE: Error type:', aiError?.constructor?.name);
+        console.error('❌ CAMPAIGN GENERATE: Error message:', aiError?.message);
+        console.error('❌ CAMPAIGN GENERATE: Error code:', aiError?.code);
+        
         await storage.updateCampaign(id, { status: "draft" }, req.user!.id);
+        
+        // Handle specific error types
+        if (aiError?.message?.includes('quota exceeded') || aiError?.code === 'insufficient_quota') {
+          console.error('💳 CAMPAIGN GENERATE: OpenAI quota exceeded - returning specific error');
+          return res.status(503).json({ 
+            message: "AI service temporarily unavailable due to quota limits. Please try again later or contact support.",
+            error: "QUOTA_EXCEEDED",
+            details: "OpenAI API quota has been exceeded. This is a temporary issue that will be resolved shortly."
+          });
+        }
+        
         throw aiError;
       }
 
       res.json({ message: "AI generation started" });
-    } catch (error) {
-      console.error('Generation error:', error);
-      res.status(500).json({ message: "Failed to generate content" });
+    } catch (error: any) {
+      console.error('❌ CAMPAIGN GENERATE: Generation error:', error);
+      console.error('❌ CAMPAIGN GENERATE: Error type:', error?.constructor?.name);
+      console.error('❌ CAMPAIGN GENERATE: Error message:', error?.message);
+      
+      // Handle specific error types
+      if (error?.message?.includes('quota exceeded') || error?.code === 'insufficient_quota') {
+        return res.status(503).json({ 
+          message: "AI service temporarily unavailable due to quota limits. Please try again later or contact support.",
+          error: "QUOTA_EXCEEDED",
+          details: "OpenAI API quota has been exceeded. This is a temporary issue that will be resolved shortly."
+        });
+      }
+      
+      res.status(500).json({ 
+        message: "Failed to generate content",
+        error: "GENERATION_FAILED",
+        details: error?.message || "An unknown error occurred during content generation"
+      });
     }
   });
 
