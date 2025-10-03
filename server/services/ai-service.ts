@@ -91,23 +91,23 @@ export class AIService {
     return this.parseAIResponse(content, platform);
   }
 
-  // Generate images using Gemini's image generation
+  // Generate images using Gemini's nano banana model (primary)
   async generateAdImagesGemini(description: string, style: string = "modern"): Promise<string[]> {
     if (!process.env.GEMINI_API_KEY) {
       throw new Error('GEMINI_API_KEY is required for image generation');
     }
 
     try {
-      console.log(`🎨 Generating images with Gemini Imagen 3: "${description}"`);
+      console.log(`🎨 Generating images with Gemini nano banana: "${description}"`);
       console.log(`🎯 Style: ${style}`);
       console.log(`🔑 Using API key: ${process.env.GEMINI_API_KEY?.substring(0, 20)}...`);
       
       const enhancedPrompt = `${description}, ${style} style, high quality, professional advertising photo, clean background, well-lit, commercial photography, product showcase, social media ready, avoid blurry or low quality images, no text or watermarks`;
       
-      // Try multiple model names in order of preference
+      // Try nano banana model first, then fallback to Imagen models
       const modelNames = [
+        "imagen-3.0-generate-001", // Nano banana model (fastest, most cost-effective)
         "imagen-3.0-generate-002", // Latest stable
-        "imagen-3.0-generate-001", // Alternative
         "imagegeneration@006",     // Legacy naming
         "imagegeneration@005"      // Fallback
       ];
@@ -129,46 +129,36 @@ export class AIService {
           
           console.log('🔍 Full response structure:', JSON.stringify(response, null, 2));
           
-          if (response?.images && response.images.length > 0) {
-            console.log(`🖼️ Generated ${response.images.length} images`);
+          // Handle the correct Gemini API response format
+          const responseData = response as any; // Type assertion to handle API response structure
+          if (responseData?.candidates && responseData.candidates.length > 0) {
+            console.log(`🖼️ Found ${responseData.candidates.length} candidates`);
             
             const imageUrls: string[] = [];
-            for (const image of response.images) {
-              if (image.data) {
-                // Convert to data URL for immediate display
-                const dataUrl = `data:image/png;base64,${image.data}`;
-                imageUrls.push(dataUrl);
-              } else if (image.url) {
-                imageUrls.push(image.url);
-              }
-            }
-            
-            return imageUrls;
-          } else if (response?.candidates && response.candidates.length > 0) {
-            // Handle different response format
-            console.log(`🖼️ Found ${response.candidates.length} candidates`);
-            
-            const imageUrls: string[] = [];
-            for (const candidate of response.candidates) {
+            for (const candidate of responseData.candidates) {
               if (candidate.content?.parts) {
                 for (const part of candidate.content.parts) {
                   if (part.inlineData && part.inlineData.data) {
+                    // Convert base64 data to data URL for immediate display
                     const dataUrl = `data:image/png;base64,${part.inlineData.data}`;
                     imageUrls.push(dataUrl);
+                    console.log(`🖼️ Generated image from ${modelName}`);
                   }
                 }
               }
             }
             
             if (imageUrls.length > 0) {
+              console.log(`✅ Successfully generated ${imageUrls.length} image(s) with ${modelName}`);
               return imageUrls;
             }
-          } else {
-            console.log(`⚠️ Model ${modelName} succeeded but returned no images in expected format`);
-            console.log('Available response properties:', Object.keys(response || {}));
-            lastError = new Error(`No images returned from ${modelName}`);
-            continue;
           }
+          
+          // If no images found in candidates, log the issue
+          console.log(`⚠️ Model ${modelName} succeeded but returned no images in expected format`);
+          console.log('Available response properties:', Object.keys(response || {}));
+          lastError = new Error(`No images returned from ${modelName}`);
+          continue;
           
         } catch (error) {
           console.log(`❌ Model ${modelName} failed:`, error);
@@ -186,7 +176,7 @@ export class AIService {
     }
   }
 
-  // Generate images using Replicate SDXL (fallback)
+  // Generate images using Replicate SDXL (fallback after Gemini)
   async generateAdImagesReplicate(description: string, style: string = "modern"): Promise<string[]> {
     try {
       const output = await replicate.run(
@@ -239,7 +229,7 @@ export class AIService {
     }
   }
 
-  // Generate images using OpenAI DALL-E 3
+  // Generate images using OpenAI DALL-E 3 (final fallback)
   async generateAdImagesOpenAI(description: string, style: string = "modern"): Promise<string[]> {
     if (!process.env.OPENAI_API_KEY) {
       throw new Error('OPENAI_API_KEY is required for image generation');
@@ -261,7 +251,7 @@ export class AIService {
 
       console.log('✅ OpenAI DALL-E 3 images generated successfully!');
       
-      const imageUrls = response.data.map(img => img.url).filter(Boolean) as string[];
+      const imageUrls = response.data?.map(img => img.url).filter(Boolean) as string[] || [];
       console.log(`📊 Generated ${imageUrls.length} image(s)`);
       
       return imageUrls;
@@ -271,31 +261,31 @@ export class AIService {
     }
   }
 
-  // Main image generation method with fallbacks - Replicate Primary
+  // Main image generation method with fallbacks - Gemini nano banana Primary
   async generateAdImages(description: string, style: string = "modern"): Promise<string[]> {
     console.log(`🎨 Starting image generation: "${description}"`);
-    console.log(`📝 Using Replicate as primary image generator`);
+    console.log(`📝 Using Gemini nano banana as primary image generator`);
     
     try {
-      // Try Replicate SDXL first (as requested)
-      return await this.generateAdImagesReplicate(description, style);
+      // Try Gemini nano banana first (fastest, most cost-effective)
+      return await this.generateAdImagesGemini(description, style);
     } catch (error: any) {
-      console.warn('⚠️ Replicate image generation failed:', error.message);
+      console.warn('⚠️ Gemini nano banana image generation failed:', error.message);
       
-      // Fallback to OpenAI DALL-E 3 if Replicate fails
-      console.log('🔄 Falling back to OpenAI DALL-E 3 for image generation...');
+      // Fallback to Replicate SDXL if Gemini fails
+      console.log('🔄 Falling back to Replicate SDXL for image generation...');
       try {
-        return await this.generateAdImagesOpenAI(description, style);
-      } catch (openaiError: any) {
-        console.error('❌ OpenAI fallback also failed:', openaiError.message);
+        return await this.generateAdImagesReplicate(description, style);
+      } catch (replicateError: any) {
+        console.error('❌ Replicate fallback also failed:', replicateError.message);
         
-        // Final fallback to Gemini (may still have billing issues)
-        console.log('🔄 Final fallback to Gemini...');
+        // Final fallback to OpenAI DALL-E 3
+        console.log('🔄 Final fallback to OpenAI DALL-E 3...');
         try {
-          return await this.generateAdImagesGemini(description, style);
-        } catch (geminiError: any) {
+          return await this.generateAdImagesOpenAI(description, style);
+        } catch (openaiError: any) {
           console.error('❌ All image generation methods failed');
-          throw new Error(`All image generation failed: Replicate: ${error.message}, OpenAI: ${openaiError.message}, Gemini: ${geminiError.message}`);
+          throw new Error(`All image generation failed: Gemini: ${error.message}, Replicate: ${replicateError.message}, OpenAI: ${openaiError.message}`);
         }
       }
     }
@@ -426,8 +416,6 @@ export class AIService {
         prompt: enhancedPrompt,
         config: {
           aspectRatio: "16:9",
-          duration: "8s", // Set to 8 seconds
-          includeAudio: true, // Enable audio generation
           personGeneration: "allow_all"
         },
       });
@@ -512,8 +500,6 @@ export class AIService {
         prompt: enhancedPrompt,
         config: {
           aspectRatio: "16:9",
-          duration: "8s", // Set to 8 seconds
-          includeAudio: true, // Enable audio generation
           personGeneration: "allow_all"
         },
       });
