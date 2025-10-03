@@ -3,6 +3,7 @@ import Replicate from 'replicate';
 import { GoogleGenAI } from '@google/genai';
 import { GeneratedContent } from '@shared/schema';
 import { learningService } from './learning-service';
+import { firebaseStorageService } from './firebase-storage-service';
 
 // Initialize AI services
 const openai = new OpenAI({
@@ -437,7 +438,7 @@ export class AIService {
           throw new Error('No video file in response');
         }
         
-        // Download and store the video file locally
+        // Download and store the video file to Firebase Storage
         console.log('Downloading Veo 2 generated video...');
         
         try {
@@ -452,17 +453,27 @@ export class AIService {
             fs.mkdirSync(videosDir, { recursive: true });
           }
           
-          // Download the video file to local storage
+          // Download the video file to local storage first
           await gemini.files.download({
             file: video.video,
             downloadPath: localPath,
           });
           
-          // Return local video URL instead of external
-          const localVideoUrl = `/videos/${fileName}`;
-          console.log('✅ Veo 2 video generated and stored locally!');
-          console.log('🎬 Local video URL:', localVideoUrl);
-          return [localVideoUrl];
+          // Upload to Firebase Storage
+          const firebaseUrl = await firebaseStorageService.uploadVideoFromPath(
+            localPath,
+            fileName,
+            {
+              provider: 'gemini-veo-2',
+              generatedAt: new Date().toISOString(),
+              duration: '8s',
+              aspectRatio: '16:9',
+            }
+          );
+          
+          console.log('✅ Veo 2 video generated and stored in Firebase Storage!');
+          console.log('🎬 Firebase video URL:', firebaseUrl);
+          return [firebaseUrl];
         } catch (downloadError) {
           console.warn('Download failed, using direct URL:', downloadError);
           // Fallback to external URL if download fails
@@ -521,35 +532,45 @@ export class AIService {
           throw new Error('No video file in response');
         }
         
-        // Download the video file to local storage
+        // Download the video file to Firebase Storage
         console.log('Downloading Veo 3 generated video...');
         
         const fileName = `veo3_${Date.now()}.mp4`;
-        const localPath = `./videos/${fileName}`;
         
         try {
           // Ensure videos directory exists
           const fs = await import('fs');
           const path = await import('path');
           const videosDir = path.join(process.cwd(), 'videos');
+          const localPath = path.join(videosDir, fileName);
           
           if (!fs.existsSync(videosDir)) {
             fs.mkdirSync(videosDir, { recursive: true });
             console.log('📁 Created videos directory');
           }
           
-          // Download the video file locally using proper path
-          const fullLocalPath = path.join(videosDir, fileName);
+          // Download the video file locally first
           await gemini.files.download({
             file: video.video,
-            downloadPath: fullLocalPath,
+            downloadPath: localPath,
           });
           
-          // Return local file path instead of temporary Gemini URL
-          const videoUrl = `/videos/${fileName}`;
-          console.log('✅ Video downloaded and stored locally:', videoUrl);
+          // Upload to Firebase Storage
+          const firebaseUrl = await firebaseStorageService.uploadVideoFromPath(
+            localPath,
+            fileName,
+            {
+              provider: 'gemini-veo-3',
+              generatedAt: new Date().toISOString(),
+              duration: '8s',
+              aspectRatio: '16:9',
+            }
+          );
           
-          return [videoUrl];
+          console.log('✅ Veo 3 video generated and stored in Firebase Storage!');
+          console.log('🎬 Firebase video URL:', firebaseUrl);
+          
+          return [firebaseUrl];
         } catch (downloadError) {
           console.warn('⚠️ Download failed, video will expire quickly:', downloadError);
           // Fallback to temporary URL with warning
@@ -579,7 +600,7 @@ export class AIService {
         try {
           console.log('🚀 Attempting Veo 3 video generation...');
           const result = await this.generateAdVideosVeo3(description, style);
-          console.log('✅ Veo 3 generation successful, videos stored locally');
+          console.log('✅ Veo 3 generation successful, videos stored in Firebase Storage');
           return result;
         } catch (error) {
           console.log('❌ Veo 3 failed, trying Veo 2...', error);

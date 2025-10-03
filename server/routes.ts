@@ -12,6 +12,14 @@ import { PublishingService } from "./services/publishing-service";
 import { StorageService } from "./services/storage-service";
 import { learningService } from "./services/learning-service";
 import { briefTemplateService } from "./services/brief-template-service";
+import { 
+  aiGenerationRateLimit, 
+  textGenerationRateLimit, 
+  imageGenerationRateLimit, 
+  videoGenerationRateLimit,
+  generalRateLimit,
+  authRateLimit 
+} from "./services/rate-limiting-service";
 import { z } from "zod";
 import crypto from 'crypto';
 
@@ -29,6 +37,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Log to confirm the middleware is active
   console.log('✅ COOP header middleware registered.');
+
+  // Apply general rate limiting to all API routes
+  app.use('/api', generalRateLimit);
+  console.log('✅ Rate limiting middleware registered for all API routes.');
 
   // Health check endpoint for Cloud Run
   app.get('/api/health', (req, res) => {
@@ -74,7 +86,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Auth routes
-  app.post('/api/auth/verify', authenticateToken, async (req, res) => {
+  app.post('/api/auth/verify', authenticateToken, authRateLimit, async (req, res) => {
     const startTime = Date.now();
     console.log('🔐 AUTH VERIFY: Starting user verification process');
     
@@ -268,7 +280,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Generate AI content for campaign (protected)
-  app.post("/api/campaigns/:id/generate", authenticateToken, async (req, res) => {
+  app.post("/api/campaigns/:id/generate", authenticateToken, aiGenerationRateLimit, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       
@@ -881,7 +893,7 @@ ${campaign.brief}`;
     }
   });
 
-  app.post("/api/brief-templates/generate", authenticateToken, async (req, res) => {
+  app.post("/api/brief-templates/generate", authenticateToken, textGenerationRateLimit, async (req, res) => {
     try {
       const { topic, platform, language, customization } = req.body;
       
@@ -1757,7 +1769,7 @@ ${campaign.brief}`;
   });
 
   // Video regeneration endpoint for expired videos
-  app.post("/api/campaigns/:id/regenerate-video", authenticateToken, async (req, res) => {
+  app.post("/api/campaigns/:id/regenerate-video", authenticateToken, videoGenerationRateLimit, async (req, res) => {
     try {
       const campaignId = parseInt(req.params.id);
       
