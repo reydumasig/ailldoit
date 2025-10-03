@@ -22,6 +22,7 @@ import {
 } from "./services/rate-limiting-service";
 import { campaignMigrationService } from "./services/campaign-migration-service";
 import { assetValidationService } from "./services/asset-validation-service";
+import { videoProcessingService } from "./services/video-processing-service";
 import { z } from "zod";
 import crypto from 'crypto';
 
@@ -1865,6 +1866,79 @@ ${campaign.brief}`;
       console.error('Video regeneration error:', error);
       res.status(500).json({ 
         message: "Failed to regenerate video",
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // Long video generation endpoint (15+ seconds)
+  app.post("/api/campaigns/:id/generate-long-video", authenticateToken, videoGenerationRateLimit, async (req, res) => {
+    try {
+      const campaignId = parseInt(req.params.id);
+      const { targetDuration = 15, platform = 'general' } = req.body;
+      
+      // Validate campaign ID
+      if (isNaN(campaignId) || campaignId <= 0) {
+        return res.status(400).json({ message: "Invalid campaign ID" });
+      }
+      
+      // Validate target duration
+      if (targetDuration < 8 || targetDuration > 60) {
+        return res.status(400).json({ message: "Target duration must be between 8 and 60 seconds" });
+      }
+      
+      // Verify campaign belongs to user
+      const campaign = await storage.getCampaign(campaignId, req.user!.id);
+      if (!campaign) {
+        return res.status(404).json({ message: "Campaign not found" });
+      }
+
+      console.log(`🎬 LONG VIDEO: Starting long video generation for campaign ${campaignId}`);
+      console.log(`🎯 LONG VIDEO: Target duration: ${targetDuration}s, Platform: ${platform}`);
+
+      // Import AI service
+      const { aiService } = await import('./services/ai-service');
+
+      // Generate long video using stitching
+      const longVideoAssets = await aiService.generateLongAdVideos(
+        campaign.brief,
+        targetDuration,
+        "modern advertising",
+        platform
+      );
+
+      if (longVideoAssets && longVideoAssets.length > 0) {
+        // Update campaign with new long video
+        const currentContent = campaign.generatedContent 
+          ? (typeof campaign.generatedContent === 'string' 
+              ? JSON.parse(campaign.generatedContent) 
+              : campaign.generatedContent)
+          : {};
+
+        const updatedContent = {
+          ...currentContent,
+          longVideoAssets: longVideoAssets,
+          longVideoDuration: targetDuration,
+          longVideoGeneratedAt: new Date().toISOString()
+        };
+
+        await storage.updateCampaign(campaignId, { generatedContent: updatedContent }, req.user!.id);
+
+        console.log(`✅ LONG VIDEO: Long video generation completed for campaign ${campaignId}`);
+        res.json({
+          message: `Long video (${targetDuration}s) generated successfully!`,
+          videoAssets: longVideoAssets,
+          duration: targetDuration,
+          platform: platform
+        });
+      } else {
+        res.status(500).json({ message: "Failed to generate long video" });
+      }
+
+    } catch (error: any) {
+      console.error('❌ LONG VIDEO: Long video generation error:', error);
+      res.status(500).json({ 
+        message: "Failed to generate long video",
         error: error instanceof Error ? error.message : String(error)
       });
     }

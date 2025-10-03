@@ -40,6 +40,9 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# Install FFmpeg for video processing
+RUN apk add --no-cache ffmpeg
+
 # Install only production dependencies
 # We copy package files again and run install to ensure a clean production environment
 COPY package.json package-lock.json ./

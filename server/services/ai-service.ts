@@ -4,6 +4,7 @@ import { GoogleGenAI } from '@google/genai';
 import { GeneratedContent } from '@shared/schema';
 import { learningService } from './learning-service';
 import { firebaseStorageService } from './firebase-storage-service';
+import { videoProcessingService, VideoStitchingOptions } from './video-processing-service';
 
 // Initialize AI services
 const openai = new OpenAI({
@@ -805,6 +806,62 @@ Format as JSON with keys: hook, caption, hashtags, videoScript
         imageAssets: [],
         videoAssets: []
       };
+    }
+  }
+
+  // Generate longer videos by stitching multiple clips together
+  async generateLongAdVideos(
+    description: string, 
+    targetDuration: number = 15,
+    style: string = "modern advertising",
+    platform: string = "general"
+  ): Promise<string[]> {
+    console.log(`🎬 Starting long video generation for: "${description}"`);
+    console.log(`🎯 Target duration: ${targetDuration}s`);
+    console.log(`📝 Style: ${style}, Platform: ${platform}`);
+    
+    try {
+      // Generate multiple video clips for stitching
+      const clips = await videoProcessingService.generateVideoClipsForStitching(
+        description,
+        targetDuration,
+        platform
+      );
+      
+      if (clips.length === 0) {
+        throw new Error('No video clips generated for stitching');
+      }
+      
+      console.log(`📊 Generated ${clips.length} clips for stitching`);
+      
+      // Configure stitching options
+      const stitchingOptions: VideoStitchingOptions = {
+        targetDuration,
+        transitionDuration: 0.5,
+        outputFormat: 'mp4',
+        quality: 'high',
+        addFadeTransitions: true,
+        addBackgroundMusic: false
+      };
+      
+      // Stitch the videos together
+      console.log(`🔗 Stitching ${clips.length} clips into ${targetDuration}s video...`);
+      const stitchedVideoUrl = await videoProcessingService.stitchVideos(clips, stitchingOptions);
+      
+      console.log(`✅ Long video generation completed: ${stitchedVideoUrl}`);
+      return [stitchedVideoUrl];
+      
+    } catch (error: any) {
+      console.error('❌ Long video generation failed:', error);
+      
+      // Fallback to single video generation
+      console.log('🔄 Falling back to single video generation...');
+      try {
+        return await this.generateAdVideos(description, style);
+      } catch (fallbackError) {
+        console.error('❌ Fallback video generation also failed:', fallbackError);
+        throw new Error(`Long video generation failed: ${error.message}. Fallback also failed: ${fallbackError.message}`);
+      }
     }
   }
 }
