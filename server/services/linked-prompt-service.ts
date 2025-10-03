@@ -207,6 +207,16 @@ export class LinkedPromptService {
         style: 'lifestyle',
         keywords: []
       };
+    } catch (error) {
+      console.error('Error analyzing brief:', error);
+      return {
+        category: 'lifestyle',
+        audience: 'millennials',
+        platform: platform.toLowerCase(),
+        tone: 'authentic',
+        style: 'lifestyle',
+        keywords: []
+      };
     }
   }
 
