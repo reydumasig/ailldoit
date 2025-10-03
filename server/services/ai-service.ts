@@ -19,58 +19,75 @@ const gemini = new GoogleGenAI({
 });
 
 export class AIService {
-  // Generate ad content using OpenAI GPT-4 with learning optimization
+  // Generate ad content using Gemini as primary provider with learning optimization
   async generateAdContent(brief: string, platform: string, language: string, userId?: string): Promise<GeneratedContent> {
     try {
       console.log(`🚀 AI SERVICE: Starting content generation for user ${userId || 'anonymous'}`);
       console.log(`📝 AI SERVICE: Brief: "${brief.substring(0, 100)}..."`);
       console.log(`🎯 AI SERVICE: Platform: ${platform}, Language: ${language}`);
+      console.log(`🔑 AI SERVICE: Gemini API Key present: ${!!process.env.GEMINI_API_KEY}`);
       
-      // Get optimized prompts based on learning patterns
-      const { systemPrompt, userPrompt } = await learningService.getOptimizedPrompt(
-        platform, 
-        language, 
-        'content', 
-        brief
-      );
-      
-      console.log(`🧠 AI SERVICE: Using AI learning-enhanced prompts for ${platform}/${language}`);
-      console.log(`🔑 AI SERVICE: OpenAI API Key present: ${!!process.env.OPENAI_API_KEY}`);
-      
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: [
-          {
-            role: "system",
-            content: systemPrompt
-          },
-          {
-            role: "user",
-            content: userPrompt
-          }
-        ],
-        temperature: 0.8,
-        max_tokens: 2000,
-      });
-
-      console.log(`✅ AI SERVICE: OpenAI API call successful`);
-      const content = completion.choices[0]?.message?.content;
-      if (!content) throw new Error('No content generated');
-
-      const generatedContent = this.parseAIResponse(content, platform);
-      
-      // Log generation for future learning (if userId provided)
-      if (userId) {
-        console.log(`📝 AI SERVICE: Content generated with learning insights for user ${userId}`);
+      // Try Gemini first (primary provider)
+      if (process.env.GEMINI_API_KEY) {
+        try {
+          console.log(`🧠 AI SERVICE: Using Gemini as primary provider for ${platform}/${language}`);
+          return await this.generateAdContentWithGemini(brief, platform, language, userId);
+        } catch (geminiError) {
+          console.error('❌ AI SERVICE: Gemini primary failed, trying OpenAI fallback:', geminiError);
+        }
       }
+      
+      // Fallback to OpenAI if Gemini fails
+      if (process.env.OPENAI_API_KEY) {
+        console.log(`🔄 AI SERVICE: Using OpenAI as fallback provider`);
+        
+        // Get optimized prompts based on learning patterns
+        const { systemPrompt, userPrompt } = await learningService.getOptimizedPrompt(
+          platform, 
+          language, 
+          'content', 
+          brief
+        );
+        
+        console.log(`🧠 AI SERVICE: Using AI learning-enhanced prompts for ${platform}/${language}`);
+        
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [
+            {
+              role: "system",
+              content: systemPrompt
+            },
+            {
+              role: "user",
+              content: userPrompt
+            }
+          ],
+          temperature: 0.8,
+          max_tokens: 2000,
+        });
 
-      return generatedContent;
+        console.log(`✅ AI SERVICE: OpenAI API call successful`);
+        const content = completion.choices[0]?.message?.content;
+        if (!content) throw new Error('No content generated');
+
+        const generatedContent = this.parseAIResponse(content, platform);
+        
+        // Log generation for future learning (if userId provided)
+        if (userId) {
+          console.log(`📝 AI SERVICE: Content generated with learning insights for user ${userId}`);
+        }
+
+        return generatedContent;
+      }
+      
+      throw new Error('No AI providers available (neither Gemini nor OpenAI)');
+      
     } catch (error: any) {
       console.error('❌ AI SERVICE: Content generation failed:', error);
       console.error('❌ AI SERVICE: Error type:', error?.constructor?.name);
       console.error('❌ AI SERVICE: Error message:', error?.message);
       console.error('❌ AI SERVICE: Error code:', error?.code);
-      console.error('❌ AI SERVICE: Error type (OpenAI):', error?.type);
       
       // Check for specific OpenAI errors
       if (error?.code === 'insufficient_quota') {
@@ -85,17 +102,7 @@ export class AIService {
       
       console.log('🔄 AI SERVICE: Attempting fallback to baseline generation...');
       
-      // If it's a quota error, try Gemini as fallback
-      if (error?.code === 'insufficient_quota' || error?.type === 'insufficient_quota') {
-        console.log('🔄 AI SERVICE: Trying Gemini as fallback for text generation...');
-        try {
-          return await this.generateAdContentWithGemini(brief, platform, language, userId);
-        } catch (geminiError) {
-          console.error('❌ AI SERVICE: Gemini fallback also failed:', geminiError);
-        }
-      }
-      
-      // Fallback to baseline generation
+      // Final fallback to baseline generation
       return this.generateAdContentBaseline(brief, platform, language);
     }
   }
@@ -122,30 +129,54 @@ export class AIService {
     return this.parseAIResponse(content, platform);
   }
 
-  // Fallback method for baseline generation (original logic)
+  // Fallback method for baseline generation (original logic) - now uses Gemini first
   private async generateAdContentBaseline(brief: string, platform: string, language: string): Promise<GeneratedContent> {
     const prompt = this.buildContentPrompt(brief, platform, language);
     
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        {
-          role: "system",
-          content: "You are an expert social media ad creative specialist focusing on SEA markets. Generate viral, localized content that resonates with the target audience."
-        },
-        {
-          role: "user",
-          content: prompt
+    // Try Gemini first for baseline generation
+    if (process.env.GEMINI_API_KEY) {
+      try {
+        console.log(`🔄 AI SERVICE: Using Gemini for baseline generation`);
+        const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        const content = response.text();
+        
+        if (content) {
+          console.log(`✅ AI SERVICE: Gemini baseline generation successful`);
+          return this.parseAIResponse(content, platform);
         }
-      ],
-      temperature: 0.8,
-      max_tokens: 2000,
-    });
+      } catch (geminiError) {
+        console.error('❌ AI SERVICE: Gemini baseline failed, trying OpenAI:', geminiError);
+      }
+    }
+    
+    // Fallback to OpenAI if Gemini fails
+    if (process.env.OPENAI_API_KEY) {
+      console.log(`🔄 AI SERVICE: Using OpenAI for baseline generation`);
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: "You are an expert social media ad creative specialist focusing on SEA markets. Generate viral, localized content that resonates with the target audience."
+          },
+          {
+            role: "user",
+            content: prompt
+          }
+        ],
+        temperature: 0.8,
+        max_tokens: 2000,
+      });
 
-    const content = completion.choices[0]?.message?.content;
-    if (!content) throw new Error('No content generated');
+      const content = completion.choices[0]?.message?.content;
+      if (!content) throw new Error('No content generated');
 
-    return this.parseAIResponse(content, platform);
+      return this.parseAIResponse(content, platform);
+    }
+    
+    throw new Error('No AI providers available for baseline generation');
   }
 
   // Generate images using Gemini's nano banana model (primary)
@@ -348,34 +379,59 @@ export class AIService {
     }
   }
 
-  // Generate video scripts and concepts
+  // Generate video scripts and concepts - now uses Gemini as primary
   async generateVideoScript(brief: string, platform: string, duration: number = 8): Promise<any[]> {
     const prompt = `Create a ${duration}-second video script for ${platform} based on this brief: ${brief}. 
     Include audio cues like background music, sound effects, and voice-over instructions.
     Format as JSON array with timeframe, visual action, and audio elements for each scene.`;
 
     try {
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: [
-          {
-            role: "system",
-            content: "You are a video script writer. Return only valid JSON array."
-          },
-          {
-            role: "user",
-            content: prompt
-          }
-        ],
-        temperature: 0.7,
-      });
+      // Try Gemini first (primary provider)
+      if (process.env.GEMINI_API_KEY) {
+        try {
+          console.log(`🎬 AI SERVICE: Using Gemini for video script generation`);
+          const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+          const result = await model.generateContent(prompt);
+          const response = await result.response;
+          let scriptContent = response.text() || '[]';
+          
+          // Clean up markdown formatting if present
+          scriptContent = scriptContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+          
+          console.log(`✅ AI SERVICE: Gemini video script generation successful`);
+          return JSON.parse(scriptContent);
+        } catch (geminiError) {
+          console.error('❌ AI SERVICE: Gemini video script failed, trying OpenAI:', geminiError);
+        }
+      }
+      
+      // Fallback to OpenAI if Gemini fails
+      if (process.env.OPENAI_API_KEY) {
+        console.log(`🔄 AI SERVICE: Using OpenAI for video script generation`);
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [
+            {
+              role: "system",
+              content: "You are a video script writer. Return only valid JSON array."
+            },
+            {
+              role: "user",
+              content: prompt
+            }
+          ],
+          temperature: 0.7,
+        });
 
-      let scriptContent = completion.choices[0]?.message?.content || '[]';
+        let scriptContent = completion.choices[0]?.message?.content || '[]';
+        
+        // Clean up markdown formatting if present
+        scriptContent = scriptContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+        
+        return JSON.parse(scriptContent);
+      }
       
-      // Clean up markdown formatting if present
-      scriptContent = scriptContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      
-      return JSON.parse(scriptContent);
+      throw new Error('No AI providers available for video script generation');
     } catch (error) {
       console.error('Video script generation failed:', error);
       return [];
