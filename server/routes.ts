@@ -20,6 +20,8 @@ import {
   generalRateLimit,
   authRateLimit 
 } from "./services/rate-limiting-service";
+import { campaignMigrationService } from "./services/campaign-migration-service";
+import { assetValidationService } from "./services/asset-validation-service";
 import { z } from "zod";
 import crypto from 'crypto';
 
@@ -1833,6 +1835,81 @@ ${campaign.brief}`;
       res.status(500).json({ 
         message: "Failed to regenerate video",
         error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // Migration endpoints for fixing expired assets
+  app.post("/api/campaigns/:id/migrate-assets", authenticateToken, async (req, res) => {
+    try {
+      const campaignId = parseInt(req.params.id);
+      
+      if (isNaN(campaignId) || campaignId <= 0) {
+        return res.status(400).json({ message: "Invalid campaign ID" });
+      }
+
+      console.log(`🔄 MIGRATION: Starting asset migration for campaign ${campaignId}`);
+      
+      const result = await campaignMigrationService.migrateCampaignAssets(campaignId, req.user!.id);
+      
+      if (result.success) {
+        res.json({
+          success: true,
+          message: result.message,
+          migratedAssets: result.migratedAssets
+        });
+      } else {
+        res.status(400).json({
+          success: false,
+          message: result.message
+        });
+      }
+    } catch (error: any) {
+      console.error('Migration error:', error);
+      res.status(500).json({ 
+        success: false,
+        message: "Failed to migrate campaign assets" 
+      });
+    }
+  });
+
+  // Check if campaign needs migration
+  app.get("/api/campaigns/:id/migration-status", authenticateToken, async (req, res) => {
+    try {
+      const campaignId = parseInt(req.params.id);
+      
+      if (isNaN(campaignId) || campaignId <= 0) {
+        return res.status(400).json({ message: "Invalid campaign ID" });
+      }
+
+      const status = await campaignMigrationService.checkCampaignMigrationStatus(campaignId, req.user!.id);
+      
+      res.json(status);
+    } catch (error: any) {
+      console.error('Migration status check error:', error);
+      res.status(500).json({ 
+        needsMigration: false,
+        message: "Failed to check migration status",
+        invalidAssets: { images: [], videos: [] }
+      });
+    }
+  });
+
+  // Migrate all user campaigns
+  app.post("/api/campaigns/migrate-all", authenticateToken, async (req, res) => {
+    try {
+      console.log(`🔄 MIGRATION: Starting migration for all user campaigns`);
+      
+      const result = await campaignMigrationService.migrateUserCampaigns(req.user!.id);
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error('Bulk migration error:', error);
+      res.status(500).json({ 
+        success: false,
+        message: "Failed to migrate user campaigns",
+        migratedCampaigns: 0,
+        totalAssets: { images: 0, videos: 0 }
       });
     }
   });
