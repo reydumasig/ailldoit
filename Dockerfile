@@ -16,7 +16,7 @@ ARG VITE_STRIPE_GROWTH_PRICE_ID
 
 # Copy package files and install all dependencies for the build
 COPY package.json package-lock.json ./
-RUN npm install --force
+RUN npm install --force && npm install @rollup/rollup-linux-x64-musl --save-dev
 
 # Copy the rest of the application source code
 COPY . .
