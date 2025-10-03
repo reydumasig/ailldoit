@@ -1,12 +1,8 @@
 import { OpenAI } from 'openai';
-import { GoogleGenAI } from '@google/genai';
+import { gemini } from './gemini-client';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
-});
-
-const gemini = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
 });
 
 interface PromptBlock {

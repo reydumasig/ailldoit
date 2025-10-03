@@ -1,10 +1,10 @@
 import OpenAI from 'openai';
 import Replicate from 'replicate';
-import { GoogleGenAI } from '@google/genai';
 import { GeneratedContent } from '@shared/schema';
 import { learningService } from './learning-service';
 import { firebaseStorageService } from './firebase-storage-service';
 import { videoProcessingService, VideoStitchingOptions } from './video-processing-service';
+import { gemini } from './gemini-client';
 
 // Initialize AI services
 const openai = new OpenAI({
@@ -13,10 +13,6 @@ const openai = new OpenAI({
 
 const replicate = new Replicate({
   auth: process.env.REPLICATE_API_TOKEN,
-});
-
-const gemini = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
 });
 
 export class AIService {

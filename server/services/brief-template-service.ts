@@ -1,10 +1,6 @@
-import { GoogleGenAI } from '@google/genai';
 import OpenAI from 'openai';
 import { storage } from '../storage';
-
-const gemini = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-});
+import { gemini } from './gemini-client';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
