@@ -377,21 +377,24 @@ Return JSON format:
         if (!response) return null;
 
         const parsed = JSON.parse(response);
+        
+        return {
+          id: `random-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          title: parsed.title,
+          category,
+          prompt: parsed.prompt,
+          tags: parsed.tags || [],
+          shotType: parsed.shotType || 'Medium Shot',
+          tone: parsed.tone || 'Creative',
+          subject: parsed.subject || 'Mixed',
+          style: parsed.style || 'Artistic',
+          difficulty: 'intermediate' as const,
+          usageCount: 0,
+          rating: 4.0
+        };
+      }
       
-      return {
-        id: `random-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        title: parsed.title,
-        category,
-        prompt: parsed.prompt,
-        tags: parsed.tags || [],
-        shotType: parsed.shotType || 'Medium Shot',
-        tone: parsed.tone || 'Creative',
-        subject: parsed.subject || 'Mixed',
-        style: parsed.style || 'Artistic',
-        difficulty: 'intermediate' as const,
-        usageCount: 0,
-        rating: 4.0
-      };
+      return null;
     } catch (error) {
       console.error('Error generating random prompt for category:', error);
       return null;

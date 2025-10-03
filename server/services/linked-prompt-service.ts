@@ -189,16 +189,16 @@ export class LinkedPromptService {
         });
 
         const result = JSON.parse(response.choices[0].message.content || '{}');
-      return {
-        category: result.category || 'lifestyle',
-        audience: result.audience || 'millennials',
-        platform: platform.toLowerCase(),
-        tone: result.tone || 'authentic',
-        style: result.style || 'lifestyle',
-        keywords: result.keywords || []
-      };
-    } catch (error) {
-      console.error('Error analyzing brief:', error);
+        return {
+          category: result.category || 'lifestyle',
+          audience: result.audience || 'millennials',
+          platform: platform.toLowerCase(),
+          tone: result.tone || 'authentic',
+          style: result.style || 'lifestyle',
+          keywords: result.keywords || []
+        };
+      }
+      
       return {
         category: 'lifestyle',
         audience: 'millennials',

@@ -261,20 +261,23 @@ export class BriefTemplateService {
         const response = completion.choices[0]?.message?.content;
         if (!response) return null;
 
-      const parsed = JSON.parse(response);
+        const parsed = JSON.parse(response);
+        
+        return {
+          id: `trend-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          title: parsed.title,
+          prompt: parsed.prompt,
+          tags: parsed.tags || [],
+          platforms: [platform.toLowerCase()],
+          tone: parsed.tone || 'Engaging',
+          languagesSupported: [language],
+          trendingTopic: topic.topic,
+          relevanceScore: topic.relevance,
+          category: parsed.category || 'Trending'
+        };
+      }
       
-      return {
-        id: `trend-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        title: parsed.title,
-        prompt: parsed.prompt,
-        tags: parsed.tags || [],
-        platforms: [platform.toLowerCase()],
-        tone: parsed.tone || 'Engaging',
-        languagesSupported: [language],
-        trendingTopic: topic.topic,
-        relevanceScore: topic.relevance,
-        category: parsed.category || 'Trending'
-      };
+      return null;
     } catch (error) {
       console.error('Error generating template from trend:', error);
       return null;
