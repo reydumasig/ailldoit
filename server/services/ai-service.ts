@@ -30,6 +30,9 @@ export class AIService {
       if (process.env.GEMINI_API_KEY) {
         try {
           console.log(`🧠 AI SERVICE: Using Gemini as primary provider for ${platform}/${language}`);
+          console.log(`🔍 AI SERVICE: Shared gemini client type:`, typeof gemini);
+          console.log(`🔍 AI SERVICE: Shared gemini client methods:`, Object.getOwnPropertyNames(gemini));
+          console.log(`🔍 AI SERVICE: getGenerativeModel available:`, typeof gemini.getGenerativeModel);
           console.log(`🔍 AI SERVICE: Calling generateAdContentWithGemini...`);
           const result = await this.generateAdContentWithGemini(brief, platform, language, userId);
           console.log(`✅ AI SERVICE: Gemini generation successful`);
