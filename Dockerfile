@@ -16,7 +16,7 @@ ARG VITE_STRIPE_GROWTH_PRICE_ID
 
 # Copy package files and install all dependencies for the build
 COPY package.json package-lock.json ./
-RUN npm install
+RUN npm install --force
 
 # Copy the rest of the application source code
 COPY . .
@@ -43,7 +43,7 @@ WORKDIR /app
 # Install only production dependencies
 # We copy package files again and run install to ensure a clean production environment
 COPY package.json package-lock.json ./
-RUN npm install --omit=dev
+RUN npm install --omit=dev --force
 
 # Copy the built application from the builder stage
 COPY --from=builder /app/dist ./dist
