@@ -56,7 +56,7 @@ Analyze and return a JSON object with these exact fields:
       if (process.env.GEMINI_API_KEY) {
         try {
           console.log(`🧠 LEARNING SERVICE: Using Gemini for feature extraction`);
-          const result = await generateGeminiContent(prompt, "gemini-1.5-flash");
+          const result = await generateGeminiContent(prompt, "gemini-1.5-pro");
           
           if (result && result.response && result.response.candidates && result.response.candidates[0] && result.response.candidates[0].content) {
             const content = result.response.candidates[0].content.parts[0].text;
