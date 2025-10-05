@@ -40,9 +40,9 @@ export class AIService {
         } catch (geminiError) {
           console.error('❌ AI SERVICE: Gemini primary failed, trying OpenAI fallback:', geminiError);
           console.error('❌ AI SERVICE: Gemini error details:', {
-            message: geminiError?.message,
-            code: geminiError?.code,
-            type: geminiError?.type
+            message: (geminiError as any)?.message,
+            code: (geminiError as any)?.code,
+            type: (geminiError as any)?.type
           });
         }
       } else {
@@ -137,12 +137,12 @@ export class AIService {
     console.log(`🔍 AI SERVICE: Calling Gemini API with new format...`);
     const result = await generateGeminiContent(prompt, "gemini-1.5-flash");
     
-    if (!result || !result.candidates || !result.candidates[0] || !result.candidates[0].content) {
+    if (!result || !result.response || !result.response.candidates || !result.response.candidates[0] || !result.response.candidates[0].content) {
       console.error('❌ AI SERVICE: No content generated from Gemini');
       throw new Error('No content generated from Gemini');
     }
     
-    const content = result.candidates[0].content.parts[0].text;
+    const content = result.response.candidates[0].content.parts[0].text;
     
     if (!content) {
       console.error('❌ AI SERVICE: No content text in Gemini response');
@@ -167,8 +167,8 @@ export class AIService {
         console.log(`🔄 AI SERVICE: Using Gemini for baseline generation`);
         const result = await generateGeminiContent(prompt, "gemini-1.5-flash");
         
-        if (result && result.candidates && result.candidates[0] && result.candidates[0].content) {
-          const content = result.candidates[0].content.parts[0].text;
+        if (result && result.response && result.response.candidates && result.response.candidates[0] && result.response.candidates[0].content) {
+          const content = result.response.candidates[0].content.parts[0].text;
           if (content) {
             console.log(`✅ AI SERVICE: Gemini baseline generation successful`);
             return this.parseAIResponse(content, platform);
@@ -420,8 +420,8 @@ export class AIService {
           console.log(`🎬 AI SERVICE: Using Gemini for video script generation`);
           const result = await generateGeminiContent(prompt, "gemini-1.5-flash");
           
-          if (result && result.candidates && result.candidates[0] && result.candidates[0].content) {
-            let scriptContent = result.candidates[0].content.parts[0].text || '[]';
+          if (result && result.response && result.response.candidates && result.response.candidates[0] && result.response.candidates[0].content) {
+            let scriptContent = result.response.candidates[0].content.parts[0].text || '[]';
             
             // Clean up markdown formatting if present
             scriptContent = scriptContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
@@ -888,7 +888,7 @@ Format as JSON with keys: hook, caption, hashtags, videoScript
         return await this.generateAdVideos(description, style);
       } catch (fallbackError) {
         console.error('❌ Fallback video generation also failed:', fallbackError);
-        throw new Error(`Long video generation failed: ${error.message}. Fallback also failed: ${fallbackError.message}`);
+        throw new Error(`Long video generation failed: ${error.message}. Fallback also failed: ${(fallbackError as any)?.message || 'Unknown error'}`);
       }
     }
   }

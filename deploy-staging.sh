@@ -47,7 +47,7 @@ gcloud run deploy "$SERVICE_NAME" \
   --memory 2Gi \
   --cpu 2 \
   --max-instances 10 \
-  --update-env-vars NODE_ENV=production \
+  --update-env-vars NODE_ENV=production,GOOGLE_CLOUD_PROJECT=ailldoit-6d0e0,GOOGLE_CLOUD_LOCATION=us-central1 \
   --update-secrets="\
 DATABASE_URL=DATABASE_URL:latest,\
 FIREBASE_SERVICE_ACCOUNT_KEY=FIREBASE_SERVICE_ACCOUNT_KEY:latest,\

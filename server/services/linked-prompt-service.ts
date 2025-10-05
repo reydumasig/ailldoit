@@ -141,8 +141,8 @@ export class LinkedPromptService {
           console.log(`🧠 LINKED PROMPT: Using Gemini for brief analysis`);
           const result = await generateGeminiContent(prompt, "gemini-1.5-flash");
           
-          if (result && result.candidates && result.candidates[0] && result.candidates[0].content) {
-            const content = result.candidates[0].content.parts[0].text;
+          if (result && result.response && result.response.candidates && result.response.candidates[0] && result.response.candidates[0].content) {
+            const content = result.response.candidates[0].content.parts[0].text;
             if (content) {
               console.log(`✅ LINKED PROMPT: Gemini brief analysis successful`);
               const parsed = JSON.parse(content);
@@ -273,10 +273,8 @@ export class LinkedPromptService {
       if (process.env.GEMINI_API_KEY) {
         try {
           console.log(`🧠 LINKED PROMPT: Using Gemini for custom prompt generation`);
-          const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
-          const result = await model.generateContent(prompt);
-          const response = await result.response;
-          const content = response.text();
+          const result = await generateGeminiContent(prompt, "gemini-1.5-flash");
+          const content = result.response.candidates[0].content.parts[0].text;
           
           if (content) {
             console.log(`✅ LINKED PROMPT: Gemini custom prompt generation successful`);
