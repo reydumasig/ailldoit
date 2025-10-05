@@ -1,6 +1,6 @@
 import { storage } from '../storage';
 import { OpenAI } from 'openai';
-import { gemini } from './gemini-client';
+import { gemini, generateGeminiContent } from './gemini-client';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -56,14 +56,14 @@ Analyze and return a JSON object with these exact fields:
       if (process.env.GEMINI_API_KEY) {
         try {
           console.log(`🧠 LEARNING SERVICE: Using Gemini for feature extraction`);
-          const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
-          const result = await model.generateContent(prompt);
-          const response = await result.response;
-          const content = response.text();
+          const result = await generateGeminiContent(prompt, "gemini-1.5-flash");
           
-          if (content) {
-            console.log(`✅ LEARNING SERVICE: Gemini feature extraction successful`);
-            return JSON.parse(content) as ContentFeatures;
+          if (result && result.candidates && result.candidates[0] && result.candidates[0].content) {
+            const content = result.candidates[0].content.parts[0].text;
+            if (content) {
+              console.log(`✅ LEARNING SERVICE: Gemini feature extraction successful`);
+              return JSON.parse(content) as ContentFeatures;
+            }
           }
         } catch (geminiError) {
           console.error('❌ LEARNING SERVICE: Gemini feature extraction failed, trying OpenAI:', geminiError);

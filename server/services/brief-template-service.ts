@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import { storage } from '../storage';
-import { gemini } from './gemini-client';
+import { gemini, generateGeminiContent } from './gemini-client';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,

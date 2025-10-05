@@ -1,5 +1,5 @@
 import { OpenAI } from 'openai';
-import { gemini } from './gemini-client';
+import { gemini, generateGeminiContent } from './gemini-client';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
@@ -139,22 +139,22 @@ export class LinkedPromptService {
       if (process.env.GEMINI_API_KEY) {
         try {
           console.log(`🧠 LINKED PROMPT: Using Gemini for brief analysis`);
-          const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
-          const result = await model.generateContent(prompt);
-          const response = await result.response;
-          const content = response.text();
+          const result = await generateGeminiContent(prompt, "gemini-1.5-flash");
           
-          if (content) {
-            console.log(`✅ LINKED PROMPT: Gemini brief analysis successful`);
-            const parsed = JSON.parse(content);
-            return {
-              category: parsed.category || 'lifestyle',
-              audience: parsed.audience || 'millennials',
-              platform: parsed.platform || platform,
-              tone: parsed.tone || 'authentic',
-              style: parsed.style || 'lifestyle',
-              keywords: parsed.keywords || []
-            };
+          if (result && result.candidates && result.candidates[0] && result.candidates[0].content) {
+            const content = result.candidates[0].content.parts[0].text;
+            if (content) {
+              console.log(`✅ LINKED PROMPT: Gemini brief analysis successful`);
+              const parsed = JSON.parse(content);
+              return {
+                category: parsed.category || 'lifestyle',
+                audience: parsed.audience || 'millennials',
+                platform: parsed.platform || platform,
+                tone: parsed.tone || 'authentic',
+                style: parsed.style || 'lifestyle',
+                keywords: parsed.keywords || []
+              };
+            }
           }
         } catch (geminiError) {
           console.error('❌ LINKED PROMPT: Gemini brief analysis failed, trying OpenAI:', geminiError);

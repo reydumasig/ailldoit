@@ -4,7 +4,7 @@ import { GeneratedContent } from '@shared/schema';
 import { learningService } from './learning-service';
 import { firebaseStorageService } from './firebase-storage-service';
 import { videoProcessingService, VideoStitchingOptions } from './video-processing-service';
-import { gemini } from './gemini-client';
+import { gemini, generateGeminiContent } from './gemini-client';
 
 // Initialize AI services
 const openai = new OpenAI({
@@ -130,21 +130,23 @@ export class AIService {
       throw new Error('GEMINI_API_KEY not available for fallback');
     }
     
-    console.log(`🔍 AI SERVICE: Initializing Gemini model...`);
-    const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
-    
     console.log(`🔍 AI SERVICE: Building content prompt...`);
     const prompt = this.buildContentPrompt(brief, platform, language);
     console.log(`🔍 AI SERVICE: Prompt length: ${prompt.length} characters`);
     
-    console.log(`🔍 AI SERVICE: Calling Gemini API...`);
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const content = response.text();
+    console.log(`🔍 AI SERVICE: Calling Gemini API with new format...`);
+    const result = await generateGeminiContent(prompt, "gemini-1.5-flash");
     
-    if (!content) {
+    if (!result || !result.candidates || !result.candidates[0] || !result.candidates[0].content) {
       console.error('❌ AI SERVICE: No content generated from Gemini');
       throw new Error('No content generated from Gemini');
+    }
+    
+    const content = result.candidates[0].content.parts[0].text;
+    
+    if (!content) {
+      console.error('❌ AI SERVICE: No content text in Gemini response');
+      throw new Error('No content text in Gemini response');
     }
     
     console.log(`✅ AI SERVICE: Gemini generation successful, content length: ${content.length}`);
@@ -163,14 +165,14 @@ export class AIService {
     if (process.env.GEMINI_API_KEY) {
       try {
         console.log(`🔄 AI SERVICE: Using Gemini for baseline generation`);
-        const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        const content = response.text();
+        const result = await generateGeminiContent(prompt, "gemini-1.5-flash");
         
-        if (content) {
-          console.log(`✅ AI SERVICE: Gemini baseline generation successful`);
-          return this.parseAIResponse(content, platform);
+        if (result && result.candidates && result.candidates[0] && result.candidates[0].content) {
+          const content = result.candidates[0].content.parts[0].text;
+          if (content) {
+            console.log(`✅ AI SERVICE: Gemini baseline generation successful`);
+            return this.parseAIResponse(content, platform);
+          }
         }
       } catch (geminiError) {
         console.error('❌ AI SERVICE: Gemini baseline failed, trying OpenAI:', geminiError);
@@ -416,16 +418,17 @@ export class AIService {
       if (process.env.GEMINI_API_KEY) {
         try {
           console.log(`🎬 AI SERVICE: Using Gemini for video script generation`);
-          const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
-          const result = await model.generateContent(prompt);
-          const response = await result.response;
-          let scriptContent = response.text() || '[]';
+          const result = await generateGeminiContent(prompt, "gemini-1.5-flash");
           
-          // Clean up markdown formatting if present
-          scriptContent = scriptContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-          
-          console.log(`✅ AI SERVICE: Gemini video script generation successful`);
-          return JSON.parse(scriptContent);
+          if (result && result.candidates && result.candidates[0] && result.candidates[0].content) {
+            let scriptContent = result.candidates[0].content.parts[0].text || '[]';
+            
+            // Clean up markdown formatting if present
+            scriptContent = scriptContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+            
+            console.log(`✅ AI SERVICE: Gemini video script generation successful`);
+            return JSON.parse(scriptContent);
+          }
         } catch (geminiError) {
           console.error('❌ AI SERVICE: Gemini video script failed, trying OpenAI:', geminiError);
         }
