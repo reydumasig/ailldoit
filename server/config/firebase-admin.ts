@@ -6,6 +6,7 @@ const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
 if (!serviceAccount) {
   console.error('❌ FIREBASE ADMIN: FIREBASE_SERVICE_ACCOUNT_KEY missing from environment');
   console.log('🔍 FIREBASE ADMIN: Available env vars:', Object.keys(process.env).filter(key => key.includes('FIREBASE')));
+  console.log('⚠️ FIREBASE ADMIN: Firebase Admin will not be initialized - some features may not work');
 } else {
   console.log('✅ FIREBASE ADMIN: Service account key found, length:', serviceAccount.length);
   try {

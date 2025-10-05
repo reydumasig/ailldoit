@@ -111,7 +111,7 @@ Analyze and return a JSON object with these exact fields:
       length: contentText.length,
       sentiment: 'neutral',
       keywords: contentText.toLowerCase().split(' ').slice(0, 5),
-      hasEmojis: /[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]/.test(contentText),
+      hasEmojis: /[\u{1F300}-\u{1F5FF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}]/u.test(contentText),
       hasHashtags: contentText.includes('#'),
       hasNumbers: /\d/.test(contentText),
       hasQuestions: contentText.includes('?'),

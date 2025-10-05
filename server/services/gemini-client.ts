@@ -1,15 +1,30 @@
 import { GoogleGenAI } from '@google/genai';
 
-// Debug logging for Gemini client initialization
-console.log('🔧 GEMINI CLIENT: Initializing shared Gemini client...');
-console.log('🔧 GEMINI CLIENT: GEMINI_API_KEY present:', !!process.env.GEMINI_API_KEY);
+// Lazy initialization of Gemini client to avoid startup failures
+let geminiInstance: GoogleGenAI | null = null;
 
-// Shared Gemini client instance to avoid bundling conflicts
-export const gemini = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-});
+const getGeminiClient = (): GoogleGenAI => {
+  if (!geminiInstance) {
+    console.log('🔧 GEMINI CLIENT: Initializing shared Gemini client...');
+    console.log('🔧 GEMINI CLIENT: GEMINI_API_KEY present:', !!process.env.GEMINI_API_KEY);
+    
+    if (!process.env.GEMINI_API_KEY) {
+      throw new Error('GEMINI_API_KEY is not set');
+    }
+    
+    geminiInstance = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+    });
+    
+    console.log('🔧 GEMINI CLIENT: Gemini client created successfully');
+  }
+  return geminiInstance;
+};
 
-console.log('🔧 GEMINI CLIENT: Gemini client created successfully');
+// Export for compatibility - lazy getter
+export const gemini = {
+  getGenerativeModel: (options: any) => getGeminiClient().getGenerativeModel(options)
+};
 
 // Helper function to generate content using Google GenAI
 export const generateGeminiContent = async (prompt: string, model: string = "gemini-1.5-pro") => {
@@ -17,8 +32,9 @@ export const generateGeminiContent = async (prompt: string, model: string = "gem
   console.log('🔧 GEMINI CLIENT: Prompt length:', prompt.length);
   
   try {
-    // Get the generative model
-    const generativeModel = gemini.getGenerativeModel({ model: model });
+    // Get the generative model using lazy initialization
+    const geminiClient = getGeminiClient();
+    const generativeModel = geminiClient.getGenerativeModel({ model: model });
     
     // Generate content
     const result = await generativeModel.generateContent(prompt);

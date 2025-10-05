@@ -17,7 +17,7 @@ const app = initializeApp(firebaseConfig);
 const storage = getStorage(app);
 
 export class FirebaseStorageService {
-  private bucket = admin.storage().bucket();
+  private bucket = admin.apps.length > 0 ? admin.storage().bucket() : null;
 
   /**
    * Upload a file to Firebase Storage and return the public URL
@@ -30,6 +30,10 @@ export class FirebaseStorageService {
   ): Promise<string> {
     try {
       console.log(`📤 FIREBASE STORAGE: Uploading file to ${filePath}`);
+      
+      if (!this.bucket) {
+        throw new Error('Firebase Admin not initialized - cannot upload to Firebase Storage');
+      }
       
       const file = this.bucket.file(filePath);
       
@@ -138,6 +142,10 @@ export class FirebaseStorageService {
     try {
       console.log(`🗑️ FIREBASE STORAGE: Deleting file: ${filePath}`);
       
+      if (!this.bucket) {
+        throw new Error('Firebase Admin not initialized - cannot delete from Firebase Storage');
+      }
+      
       const file = this.bucket.file(filePath);
       await file.delete();
       
@@ -153,6 +161,10 @@ export class FirebaseStorageService {
    */
   async getFileMetadata(filePath: string): Promise<any> {
     try {
+      if (!this.bucket) {
+        throw new Error('Firebase Admin not initialized - cannot get metadata from Firebase Storage');
+      }
+      
       const file = this.bucket.file(filePath);
       const [metadata] = await file.getMetadata();
       return metadata;
@@ -167,6 +179,11 @@ export class FirebaseStorageService {
    */
   async fileExists(filePath: string): Promise<boolean> {
     try {
+      if (!this.bucket) {
+        console.warn('⚠️ FIREBASE STORAGE: Firebase Admin not initialized - assuming file does not exist');
+        return false;
+      }
+      
       const file = this.bucket.file(filePath);
       const [exists] = await file.exists();
       return exists;
@@ -181,6 +198,10 @@ export class FirebaseStorageService {
    */
   async getSignedUrl(filePath: string, expiresIn: number = 3600): Promise<string> {
     try {
+      if (!this.bucket) {
+        throw new Error('Firebase Admin not initialized - cannot generate signed URL');
+      }
+      
       const file = this.bucket.file(filePath);
       const [signedUrl] = await file.getSignedUrl({
         action: 'read',
