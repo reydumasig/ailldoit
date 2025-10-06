@@ -38,7 +38,7 @@ export const gemini = {
 };
 
 // Helper function to generate content using Google GenAI
-export const generateGeminiContent = async (prompt: string, model: string = "gemini-1.5-pro") => {
+export const generateGeminiContent = async (prompt: string, model: string = "gemini-1.5-flash") => {
   console.log('🔧 GEMINI CLIENT: Generating content with model:', model);
   console.log('🔧 GEMINI CLIENT: Prompt length:', prompt.length);
   

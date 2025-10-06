@@ -135,7 +135,7 @@ export class AIService {
     console.log(`🔍 AI SERVICE: Prompt length: ${prompt.length} characters`);
     
     console.log(`🔍 AI SERVICE: Calling Gemini API with new format...`);
-    const result = await generateGeminiContent(prompt, "gemini-1.5-pro");
+    const result = await generateGeminiContent(prompt, "gemini-1.5-flash");
     
     if (!result || !result.response || !result.response.candidates || !result.response.candidates[0] || !result.response.candidates[0].content) {
       console.error('❌ AI SERVICE: No content generated from Gemini');
@@ -165,7 +165,7 @@ export class AIService {
     if (process.env.GEMINI_API_KEY) {
       try {
         console.log(`🔄 AI SERVICE: Using Gemini for baseline generation`);
-        const result = await generateGeminiContent(prompt, "gemini-1.5-pro");
+        const result = await generateGeminiContent(prompt, "gemini-1.5-flash");
         
         if (result && result.response && result.response.candidates && result.response.candidates[0] && result.response.candidates[0].content) {
           const content = result.response.candidates[0].content.parts[0].text;
@@ -418,7 +418,7 @@ export class AIService {
       if (process.env.GEMINI_API_KEY) {
         try {
           console.log(`🎬 AI SERVICE: Using Gemini for video script generation`);
-          const result = await generateGeminiContent(prompt, "gemini-1.5-pro");
+          const result = await generateGeminiContent(prompt, "gemini-1.5-flash");
           
           if (result && result.response && result.response.candidates && result.response.candidates[0] && result.response.candidates[0].content) {
             let scriptContent = result.response.candidates[0].content.parts[0].text || '[]';

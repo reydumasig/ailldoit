@@ -209,7 +209,7 @@ export class BriefTemplateService {
       if (process.env.GEMINI_API_KEY) {
         try {
           console.log(`🧠 BRIEF TEMPLATE: Using Gemini for template generation`);
-          const result = await generateGeminiContent(prompt, "gemini-1.5-pro");
+          const result = await generateGeminiContent(prompt, "gemini-1.5-flash");
           const content = result.response.candidates[0].content.parts[0].text;
           
           if (content) {
