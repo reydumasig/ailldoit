@@ -43,14 +43,21 @@ export const generateGeminiContent = async (prompt: string, model: string = "gem
   console.log('🔧 GEMINI CLIENT: Prompt length:', prompt.length);
   
   try {
-    // Get the generative model using lazy initialization
+    // Get the Gemini client using lazy initialization
     const geminiClient = getGeminiClient();
-    const generativeModel = geminiClient.getGenerativeModel({ model: model });
+    console.log('🔧 GEMINI CLIENT: Available methods on client:', Object.getOwnPropertyNames(geminiClient));
+    console.log('🔧 GEMINI CLIENT: Models available:', Object.getOwnPropertyNames(geminiClient.models));
     
-    // Generate content
-    const result = await generativeModel.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
+    // Generate content using the correct API
+    const result = await geminiClient.models.generateContent({
+      model: model,
+      contents: [{ role: 'user', parts: [{ text: prompt }] }]
+    });
+    
+    console.log('🔧 GEMINI CLIENT: Raw result:', JSON.stringify(result, null, 2));
+    
+    // Extract text from the response
+    const text = result.candidates[0].content.parts[0].text;
     
     console.log('🔧 GEMINI CLIENT: Content generated successfully');
     
