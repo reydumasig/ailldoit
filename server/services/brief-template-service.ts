@@ -209,10 +209,8 @@ export class BriefTemplateService {
       if (process.env.GEMINI_API_KEY) {
         try {
           console.log(`🧠 BRIEF TEMPLATE: Using Gemini for template generation`);
-          const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
-          const result = await model.generateContent(prompt);
-          const response = await result.response;
-          const content = response.text();
+          const result = await generateGeminiContent(prompt, "gemini-1.5-pro");
+          const content = result.response.candidates[0].content.parts[0].text;
           
           if (content) {
             console.log(`✅ BRIEF TEMPLATE: Gemini template generation successful`);

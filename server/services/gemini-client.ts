@@ -23,7 +23,18 @@ const getGeminiClient = (): GoogleGenAI => {
 
 // Export for compatibility - lazy getter
 export const gemini = {
-  getGenerativeModel: (options: any) => getGeminiClient().getGenerativeModel(options)
+  getGenerativeModel: (options: any) => {
+    const client = getGeminiClient();
+    console.log('🔧 GEMINI CLIENT: Available methods on client:', Object.getOwnPropertyNames(client));
+    console.log('🔧 GEMINI CLIENT: Client type:', typeof client);
+    console.log('🔧 GEMINI CLIENT: getGenerativeModel exists:', typeof client.getGenerativeModel);
+    
+    if (typeof client.getGenerativeModel !== 'function') {
+      throw new Error(`getGenerativeModel is not a function. Available methods: ${Object.getOwnPropertyNames(client).join(', ')}`);
+    }
+    
+    return client.getGenerativeModel(options);
+  }
 };
 
 // Helper function to generate content using Google GenAI
