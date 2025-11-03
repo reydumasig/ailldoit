@@ -21,6 +21,8 @@ const requiredFields = [
   'VITE_FIREBASE_APP_ID'
 ];
 
+console.log("Hehehhaw", import.meta.env);
+
 const missingFields = requiredFields.filter(field => !import.meta.env[field]);
 if (missingFields.length > 0) {
   console.error('❌ Missing Firebase configuration:', missingFields);
@@ -44,7 +46,7 @@ if (missingFields.length > 0) {
   errorDiv.innerHTML = `
     <div style="text-align: center; max-width: 500px; padding: 2rem;">
       <h1 style="color: #ef4444; margin-bottom: 1rem;">Configuration Error</h1>
-      <p style="margin-bottom: 1rem;">Firebase configuration is missing or incomplete.</p>
+      <p style="margin-bottom: 1rem;">Firebase configuration is missing or incomplete. XXX</p>
       <p style="font-size: 0.875rem; opacity: 0.7;">Missing fields: ${missingFields.join(', ')}</p>
       <p style="font-size: 0.875rem; opacity: 0.7; margin-top: 1rem;">Please check your environment variables.</p>
     </div>
@@ -84,7 +86,7 @@ try {
   errorDiv.innerHTML = `
     <div style="text-align: center; max-width: 500px; padding: 2rem;">
       <h1 style="color: #ef4444; margin-bottom: 1rem;">Firebase Error</h1>
-      <p style="margin-bottom: 1rem;">Failed to initialize Firebase services.</p>
+      <p style="margin-bottom: 1rem;">Failed to initialize Firebase services XXX.</p>
       <p style="font-size: 0.875rem; opacity: 0.7;">${error.message}</p>
       <button onclick="window.location.reload()" style="
         margin-top: 1rem; padding: 0.5rem 1rem; 

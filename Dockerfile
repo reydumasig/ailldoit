@@ -4,15 +4,15 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Define ARGs for all build-time secrets
-ARG VITE_FIREBASE_API_KEY
-ARG VITE_FIREBASE_AUTH_DOMAIN
-ARG VITE_FIREBASE_PROJECT_ID
-ARG VITE_FIREBASE_STORAGE_BUCKET
-ARG VITE_FIREBASE_MESSAGING_SENDER_ID
-ARG VITE_FIREBASE_APP_ID
-ARG VITE_STRIPE_PUBLIC_KEY
-ARG VITE_STRIPE_STARTER_PRICE_ID
-ARG VITE_STRIPE_GROWTH_PRICE_ID
+# ARG VITE_FIREBASE_API_KEY
+# ARG VITE_FIREBASE_AUTH_DOMAIN
+# ARG VITE_FIREBASE_PROJECT_ID
+# ARG VITE_FIREBASE_STORAGE_BUCKET
+# ARG VITE_FIREBASE_MESSAGING_SENDER_ID
+# ARG VITE_FIREBASE_APP_ID
+# ARG VITE_STRIPE_PUBLIC_KEY
+# ARG VITE_STRIPE_STARTER_PRICE_ID
+# ARG VITE_STRIPE_GROWTH_PRICE_ID
 
 # Copy package files and install all dependencies for the build
 COPY package.json package-lock.json ./
@@ -22,15 +22,26 @@ RUN npm install --force && npm install @rollup/rollup-linux-x64-musl --save-dev
 COPY . .
 
 # Make ARGs available as environment variables for the build process
-ENV VITE_FIREBASE_API_KEY=$VITE_FIREBASE_API_KEY
-ENV VITE_FIREBASE_AUTH_DOMAIN=$VITE_FIREBASE_AUTH_DOMAIN
-ENV VITE_FIREBASE_PROJECT_ID=$VITE_FIREBASE_PROJECT_ID
-ENV VITE_FIREBASE_STORAGE_BUCKET=$VITE_FIREBASE_STORAGE_BUCKET
-ENV VITE_FIREBASE_MESSAGING_SENDER_ID=$VITE_FIREBASE_MESSAGING_SENDER_ID
-ENV VITE_FIREBASE_APP_ID=$VITE_FIREBASE_APP_ID
-ENV VITE_STRIPE_PUBLIC_KEY=$VITE_STRIPE_PUBLIC_KEY
-ENV VITE_STRIPE_STARTER_PRICE_ID=$VITE_STRIPE_STARTER_PRICE_ID
-ENV VITE_STRIPE_GROWTH_PRICE_ID=$VITE_STRIPE_GROWTH_PRICE_ID
+# ENV VITE_FIREBASE_API_KEY=$VITE_FIREBASE_API_KEY
+# ENV VITE_FIREBASE_AUTH_DOMAIN=$VITE_FIREBASE_AUTH_DOMAIN
+# ENV VITE_FIREBASE_PROJECT_ID=$VITE_FIREBASE_PROJECT_ID
+# ENV VITE_FIREBASE_STORAGE_BUCKET=$VITE_FIREBASE_STORAGE_BUCKET
+# ENV VITE_FIREBASE_MESSAGING_SENDER_ID=$VITE_FIREBASE_MESSAGING_SENDER_ID
+# ENV VITE_FIREBASE_APP_ID=$VITE_FIREBASE_APP_ID
+# ENV VITE_STRIPE_PUBLIC_KEY=$VITE_STRIPE_PUBLIC_KEY
+# ENV VITE_STRIPE_STARTER_PRICE_ID=$VITE_STRIPE_STARTER_PRICE_ID
+# ENV VITE_STRIPE_GROWTH_PRICE_ID=$VITE_STRIPE_GROWTH_PRICE_ID
+
+# Optional: if .env.docker exists (for local builds), copy it so Vite sees VITE_ vars
+# Cloud Build will skip this silently since .env.docker isn't present there
+# RUN if [ -f .env.docker ]; then cp .env.docker .env; fi
+COPY .env.docker .env
+
+RUN if [ -f .env.docker ]; then \
+      echo "✅ .env.docker found, contents:" && cat .env.docker && cp .env.docker .env; \
+    else \
+      echo "❌ .env.docker not found, skipping copy"; \
+    fi
 
 # Build the client and server
 RUN npm run build
@@ -50,6 +61,9 @@ RUN npm install --omit=dev --force
 
 # Copy the built application from the builder stage
 COPY --from=builder /app/dist ./dist
+
+# Copy environment file for runtime
+COPY --from=builder /app/.env .env
 
 # Expose the port the app runs on
 EXPOSE 8080

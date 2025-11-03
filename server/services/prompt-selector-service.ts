@@ -225,7 +225,7 @@ Return only the prompt text, no additional formatting or explanation.`;
       if (process.env.GEMINI_API_KEY) {
         try {
           console.log(`🧠 PROMPT SELECTOR: Using Gemini for custom prompt generation`);
-          const result = await generateGeminiContent(prompt, "gemini-1.5-flash");
+          const result = await generateGeminiContent(prompt); // hardcoded gemini-2.5-flash
           const content = result.response.candidates[0].content.parts[0].text;
           
           if (content) {
@@ -321,7 +321,7 @@ Return JSON format:
       if (process.env.GEMINI_API_KEY) {
         try {
           console.log(`🧠 PROMPT SELECTOR: Using Gemini for random prompt generation`);
-          const result = await generateGeminiContent(prompt, "gemini-1.5-flash");
+          const result = await generateGeminiContent(prompt); // hardcoded gemini-2.5-flash
           const content = result.response.candidates[0].content.parts[0].text;
           
           if (content) {
@@ -426,7 +426,7 @@ Return only the remixed prompt text, no additional formatting.`;
       if (process.env.GEMINI_API_KEY) {
         try {
           console.log(`🧠 PROMPT SELECTOR: Using Gemini for prompt remixing`);
-          const result = await generateGeminiContent(prompt, "gemini-1.5-flash");
+          const result = await generateGeminiContent(prompt); // hardcoded gemini-2.5-flash
           const content = result.response.candidates[0].content.parts[0].text;
           
           if (content) {

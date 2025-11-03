@@ -32,7 +32,7 @@ export class AIService {
           console.log(`🧠 AI SERVICE: Using Gemini as primary provider for ${platform}/${language}`);
           console.log(`🔍 AI SERVICE: Shared gemini client type:`, typeof gemini);
           console.log(`🔍 AI SERVICE: Shared gemini client methods:`, Object.getOwnPropertyNames(gemini));
-          console.log(`🔍 AI SERVICE: getGenerativeModel available:`, typeof gemini.getGenerativeModel);
+          // console.log(`🔍 AI SERVICE: getGenerativeModel available:`, typeof gemini.getGenerativeModel);
           console.log(`🔍 AI SERVICE: Calling generateAdContentWithGemini...`);
           const result = await this.generateAdContentWithGemini(brief, platform, language, userId);
           console.log(`✅ AI SERVICE: Gemini generation successful`);
@@ -50,48 +50,48 @@ export class AIService {
       }
       
       // Fallback to OpenAI if Gemini fails
-      if (process.env.OPENAI_API_KEY) {
-        console.log(`🔄 AI SERVICE: Using OpenAI as fallback provider`);
+      // if (process.env.OPENAI_API_KEY) {
+      //   console.log(`🔄 AI SERVICE: Using OpenAI as fallback provider`);
         
-        // Get optimized prompts based on learning patterns
-        const { systemPrompt, userPrompt } = await learningService.getOptimizedPrompt(
-          platform, 
-          language, 
-          'content', 
-          brief
-        );
+      //   // Get optimized prompts based on learning patterns
+      //   const { systemPrompt, userPrompt } = await learningService.getOptimizedPrompt(
+      //     platform, 
+      //     language, 
+      //     'content', 
+      //     brief
+      //   );
         
-        console.log(`🧠 AI SERVICE: Using AI learning-enhanced prompts for ${platform}/${language}`);
+      //   console.log(`🧠 AI SERVICE: Using AI learning-enhanced prompts for ${platform}/${language}`);
         
-        const completion = await openai.chat.completions.create({
-          model: "gpt-4o",
-          messages: [
-            {
-              role: "system",
-              content: systemPrompt
-            },
-            {
-              role: "user",
-              content: userPrompt
-            }
-          ],
-          temperature: 0.8,
-          max_tokens: 2000,
-        });
+      //   const completion = await openai.chat.completions.create({
+      //     model: "gpt-4o",
+      //     messages: [
+      //       {
+      //         role: "system",
+      //         content: systemPrompt
+      //       },
+      //       {
+      //         role: "user",
+      //         content: userPrompt
+      //       }
+      //     ],
+      //     temperature: 0.8,
+      //     max_tokens: 2000,
+      //   });
 
-        console.log(`✅ AI SERVICE: OpenAI API call successful`);
-        const content = completion.choices[0]?.message?.content;
-        if (!content) throw new Error('No content generated');
+      //   console.log(`✅ AI SERVICE: OpenAI API call successful`);
+      //   const content = completion.choices[0]?.message?.content;
+      //   if (!content) throw new Error('No content generated');
 
-        const generatedContent = this.parseAIResponse(content, platform);
+      //   const generatedContent = this.parseAIResponse(content, platform);
         
-        // Log generation for future learning (if userId provided)
-        if (userId) {
-          console.log(`📝 AI SERVICE: Content generated with learning insights for user ${userId}`);
-        }
+      //   // Log generation for future learning (if userId provided)
+      //   if (userId) {
+      //     console.log(`📝 AI SERVICE: Content generated with learning insights for user ${userId}`);
+      //   }
 
-        return generatedContent;
-      }
+      //   return generatedContent;
+      // }
       
       throw new Error('No AI providers available (neither Gemini nor OpenAI)');
       
@@ -135,7 +135,7 @@ export class AIService {
     console.log(`🔍 AI SERVICE: Prompt length: ${prompt.length} characters`);
     
     console.log(`🔍 AI SERVICE: Calling Gemini API with new format...`);
-    const result = await generateGeminiContent(prompt, "gemini-1.5-flash");
+    const result = await generateGeminiContent(prompt); // model version is hardcoded
     
     if (!result || !result.response || !result.response.candidates || !result.response.candidates[0] || !result.response.candidates[0].content) {
       console.error('❌ AI SERVICE: No content generated from Gemini');
@@ -165,7 +165,7 @@ export class AIService {
     if (process.env.GEMINI_API_KEY) {
       try {
         console.log(`🔄 AI SERVICE: Using Gemini for baseline generation`);
-        const result = await generateGeminiContent(prompt, "gemini-1.5-flash");
+        const result = await generateGeminiContent(prompt); // model version is hardcoded
         
         if (result && result.response && result.response.candidates && result.response.candidates[0] && result.response.candidates[0].content) {
           const content = result.response.candidates[0].content.parts[0].text;
@@ -180,29 +180,29 @@ export class AIService {
     }
     
     // Fallback to OpenAI if Gemini fails
-    if (process.env.OPENAI_API_KEY) {
-      console.log(`🔄 AI SERVICE: Using OpenAI for baseline generation`);
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: [
-          {
-            role: "system",
-            content: "You are an expert social media ad creative specialist focusing on SEA markets. Generate viral, localized content that resonates with the target audience."
-          },
-          {
-            role: "user",
-            content: prompt
-          }
-        ],
-        temperature: 0.8,
-        max_tokens: 2000,
-      });
+    // if (process.env.OPENAI_API_KEY) {
+    //   console.log(`🔄 AI SERVICE: Using OpenAI for baseline generation`);
+    //   const completion = await openai.chat.completions.create({
+    //     model: "gpt-4o",
+    //     messages: [
+    //       {
+    //         role: "system",
+    //         content: "You are an expert social media ad creative specialist focusing on SEA markets. Generate viral, localized content that resonates with the target audience."
+    //       },
+    //       {
+    //         role: "user",
+    //         content: prompt
+    //       }
+    //     ],
+    //     temperature: 0.8,
+    //     max_tokens: 2000,
+    //   });
 
-      const content = completion.choices[0]?.message?.content;
-      if (!content) throw new Error('No content generated');
+    //   const content = completion.choices[0]?.message?.content;
+    //   if (!content) throw new Error('No content generated');
 
-      return this.parseAIResponse(content, platform);
-    }
+    //   return this.parseAIResponse(content, platform);
+    // }
     
     throw new Error('No AI providers available for baseline generation');
   }
@@ -221,61 +221,55 @@ export class AIService {
       const enhancedPrompt = `${description}, ${style} style, high quality, professional advertising photo, clean background, well-lit, commercial photography, product showcase, social media ready, avoid blurry or low quality images, no text or watermarks`;
       
       // Try nano banana model first, then fallback to Imagen models
-      const modelNames = [
-        "imagen-3.0-generate-001", // Nano banana model (fastest, most cost-effective)
-        "imagen-3.0-generate-002", // Latest stable
-        "imagegeneration@006",     // Legacy naming
-        "imagegeneration@005"      // Fallback
+      // const modelNames = [
+      //   "imagen-3.0-generate-001", // Nano banana model (fastest, most cost-effective)
+      //   "imagen-3.0-generate-002", // Latest stable
+      //   "imagegeneration@006",     // Legacy naming
+      //   "imagegeneration@005"      // Fallback
+      // ];
+
+      const modelNames = [                
+        "imagen-4.0-ultra-generate-001", // Imagen 4 Ultra Generate
+        "imagen-4.0-generate-001", // Imagen 4 Fast Generate
+        "imagen-3.0-fast-generate-001", // Imagen 3 Fast Generate 001
+        "imagen-3.0-generate-002", // Imagen 3 Generate 002 Fallback
+        // "gemini-2.5-flash-image", // nano-banana 
       ];
       
       let lastError;
       for (const modelName of modelNames) {
         try {
           console.log(`🔄 Attempting with model: ${modelName}`);
-          const response = await gemini.models.generateImages({
-            model: modelName,
-            prompt: enhancedPrompt,
-            config: {
-              numberOfImages: 1,
-              aspectRatio: "1:1",
-            },
-          });
+         
+          // SHOULD RETURN LIST [] OF BASE64 Images
+          const response = await gemini.generateImages(enhancedPrompt, modelName);
 
-          console.log(`✅ Model ${modelName} succeeded`);
-          
-          console.log('🔍 Full response structure:', JSON.stringify(response, null, 2));
-          
-          // Handle the correct Gemini API response format
-          const responseData = response as any; // Type assertion to handle API response structure
-          if (responseData?.candidates && responseData.candidates.length > 0) {
-            console.log(`🖼️ Found ${responseData.candidates.length} candidates`);
-            
+          console.log(`✅ Model ${modelName} succeeded`);          
+          console.log('🔍 Full response length:', response.length);
+
+          if(response){
+            console.log(`✅ Successfully generated ${response.length} image(s) with ${modelName}`);
+
             const imageUrls: string[] = [];
-            for (const candidate of responseData.candidates) {
-              if (candidate.content?.parts) {
-                for (const part of candidate.content.parts) {
-                  if (part.inlineData && part.inlineData.data) {
-                    // Convert base64 data to data URL for immediate display
-                    const dataUrl = `data:image/png;base64,${part.inlineData.data}`;
-                    imageUrls.push(dataUrl);
-                    console.log(`🖼️ Generated image from ${modelName}`);
-                  }
-                }
+
+            // Handle the correct Gemini API response format
+            // Convert base64 data to data URL for immediate display
+            for (const item of response) {
+              if(item?.image){
+                const image = item?.image
+                const dataUrl = `data:image/png;base64,${image.imageBytes}`;
+                imageUrls.push(dataUrl);
               }
             }
-            
-            if (imageUrls.length > 0) {
-              console.log(`✅ Successfully generated ${imageUrls.length} image(s) with ${modelName}`);
-              return imageUrls;
-            }
+            return imageUrls;
           }
-          
+
           // If no images found in candidates, log the issue
           console.log(`⚠️ Model ${modelName} succeeded but returned no images in expected format`);
           console.log('Available response properties:', Object.keys(response || {}));
           lastError = new Error(`No images returned from ${modelName}`);
           continue;
-          
+                    
         } catch (error) {
           console.log(`❌ Model ${modelName} failed:`, error);
           lastError = error;
@@ -387,7 +381,7 @@ export class AIService {
       return await this.generateAdImagesGemini(description, style);
     } catch (error: any) {
       console.warn('⚠️ Gemini nano banana image generation failed:', error.message);
-      
+  
       // Fallback to Replicate SDXL if Gemini fails
       console.log('🔄 Falling back to Replicate SDXL for image generation...');
       try {
@@ -418,7 +412,7 @@ export class AIService {
       if (process.env.GEMINI_API_KEY) {
         try {
           console.log(`🎬 AI SERVICE: Using Gemini for video script generation`);
-          const result = await generateGeminiContent(prompt, "gemini-1.5-flash");
+          const result = await generateGeminiContent(prompt); // model version is hardcoded
           
           if (result && result.response && result.response.candidates && result.response.candidates[0] && result.response.candidates[0].content) {
             let scriptContent = result.response.candidates[0].content.parts[0].text || '[]';
@@ -552,79 +546,13 @@ export class AIService {
       
       // Create enhanced prompt for social media with audio cues
       const enhancedPrompt = `${description}, ${style} style, high quality professional social media advertisement, cinematic lighting, smooth motion, with background music and ambient sound effects`;
+
+      let response = await gemini.generateVideos(enhancedPrompt, "veo-2.0-generate-001", true); // ensures to download generated video
+
+      console.log('⏳ Veo 2 video generation result...', response);
+
+      return response || [];
       
-      let operation = await gemini.models.generateVideos({
-        model: "veo-2.0-generate-001", // Use Veo 2 which works with regular API key
-        prompt: enhancedPrompt,
-        config: {
-          aspectRatio: "16:9",
-          personGeneration: "allow_all"
-        },
-      });
-
-      // Poll for completion
-      console.log('Polling Veo 2 operation status...');
-      while (!operation.done) {
-        console.log('Waiting for Veo 2 video generation to complete...');
-        await new Promise((resolve) => setTimeout(resolve, 10000)); // Wait 10 seconds
-        operation = await gemini.operations.getVideosOperation({
-          operation: operation,
-        });
-      }
-
-      if (operation.response?.generatedVideos && operation.response.generatedVideos.length > 0) {
-        const video = operation.response.generatedVideos[0];
-        
-        if (!video.video) {
-          throw new Error('No video file in response');
-        }
-        
-        // Download and store the video file to Firebase Storage
-        console.log('Downloading Veo 2 generated video...');
-        
-        try {
-          const fs = await import('fs');
-          const path = await import('path');
-          const fileName = `veo2_${Date.now()}.mp4`;
-          const videosDir = path.join(process.cwd(), 'videos');
-          const localPath = path.join(videosDir, fileName);
-          
-          // Ensure videos directory exists
-          if (!fs.existsSync(videosDir)) {
-            fs.mkdirSync(videosDir, { recursive: true });
-          }
-          
-          // Download the video file to local storage first
-          await gemini.files.download({
-            file: video.video,
-            downloadPath: localPath,
-          });
-          
-          // Upload to Firebase Storage
-          const firebaseUrl = await firebaseStorageService.uploadVideoFromPath(
-            localPath,
-            fileName,
-            {
-              provider: 'gemini-veo-2',
-              generatedAt: new Date().toISOString(),
-              duration: '8s',
-              aspectRatio: '16:9',
-            }
-          );
-          
-          console.log('✅ Veo 2 video generated and stored in Firebase Storage!');
-          console.log('🎬 Firebase video URL:', firebaseUrl);
-          return [firebaseUrl];
-        } catch (downloadError) {
-          console.warn('Download failed, using direct URL:', downloadError);
-          // Fallback to external URL if download fails
-          const videoUrl = video.video.uri;
-          console.log('🎬 Fallback video URL:', videoUrl);
-          return videoUrl ? [videoUrl] : [];
-        }
-      } else {
-        throw new Error('No video generated by Veo 2');
-      }
     } catch (error) {
       console.error('Veo 2 video generation failed:', error);
       console.log('Falling back to Replicate video generation...');
@@ -647,83 +575,12 @@ export class AIService {
       // Create enhanced prompt with audio cues for social media - avoid negative terms
       const enhancedPrompt = `${description}, ${style} style, cinematic quality, professional social media advertisement, high production value, clear visuals, smooth motion. Background music: upbeat, modern. Sound effects: subtle product sounds, ambient atmosphere.`;
       
-      let operation = await gemini.models.generateVideos({
-        model: "veo-3.0-generate-preview",
-        prompt: enhancedPrompt,
-        config: {
-          aspectRatio: "16:9",
-          personGeneration: "allow_all"
-        },
-      });
+      let response = await gemini.generateVideos(enhancedPrompt, "veo-3.0-generate-preview", true); // ensures to download generated video
 
-      // Poll for completion
-      console.log('Polling Veo 3 operation status...');
-      while (!operation.done) {
-        console.log('Waiting for Veo 3 video generation to complete...');
-        await new Promise((resolve) => setTimeout(resolve, 10000)); // Wait 10 seconds
-        operation = await gemini.operations.getVideosOperation({
-          operation: operation,
-        });
-      }
+      console.log('⏳ Veo 3 video generation result...', response);
 
-      if (operation.response?.generatedVideos && operation.response.generatedVideos.length > 0) {
-        const video = operation.response.generatedVideos[0];
-        
-        if (!video.video) {
-          throw new Error('No video file in response');
-        }
-        
-        // Download the video file to Firebase Storage
-        console.log('Downloading Veo 3 generated video...');
-        
-        const fileName = `veo3_${Date.now()}.mp4`;
-        
-        try {
-          // Ensure videos directory exists
-          const fs = await import('fs');
-          const path = await import('path');
-          const videosDir = path.join(process.cwd(), 'videos');
-          const localPath = path.join(videosDir, fileName);
-          
-          if (!fs.existsSync(videosDir)) {
-            fs.mkdirSync(videosDir, { recursive: true });
-            console.log('📁 Created videos directory');
-          }
-          
-          // Download the video file locally first
-          await gemini.files.download({
-            file: video.video,
-            downloadPath: localPath,
-          });
-          
-          // Upload to Firebase Storage
-          const firebaseUrl = await firebaseStorageService.uploadVideoFromPath(
-            localPath,
-            fileName,
-            {
-              provider: 'gemini-veo-3',
-              generatedAt: new Date().toISOString(),
-              duration: '8s',
-              aspectRatio: '16:9',
-            }
-          );
-          
-          console.log('✅ Veo 3 video generated and stored in Firebase Storage!');
-          console.log('🎬 Firebase video URL:', firebaseUrl);
-          
-          return [firebaseUrl];
-        } catch (downloadError) {
-          console.warn('⚠️ Download failed, video will expire quickly:', downloadError);
-          // Fallback to temporary URL with warning
-          const videoUrl = video.video.uri || '';
-          console.warn('🚨 Using temporary URL that will expire soon:', videoUrl);
-          return videoUrl ? [videoUrl] : [];
-        }
-        
-        // This code should not be reached due to early return above
-      } else {
-        throw new Error('No video generated by Veo 3');
-      }
+      return response || [];
+     
     } catch (error) {
       console.error('Veo 3 video generation failed:', error);
       console.log('Falling back to Veo 2...');

@@ -1,5 +1,6 @@
 import { config } from 'dotenv';
 import express from "express";
+import http from "http";
 import { registerRoutes } from "./routes";
 
 // Load environment variables
@@ -77,6 +78,9 @@ app.use((req, res, next) => {
     console.log('✅ Static file serving configured BEFORE routes');
     
     httpServer = await registerRoutes(app);
+
+    const { setupVite } = await import("./vite");
+    await setupVite(app, httpServer);
     
     // Catch-all route for SPA - AFTER all API routes
     app.use("*", (_req, res) => {
@@ -88,12 +92,11 @@ app.use((req, res, next) => {
   // Other ports are firewalled. Default to 8080 if not specified.
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
+  // Create an HTTP server explicitly
+  // const server = http.createServer(app);
+  
   const port = parseInt(process.env.PORT || '8080', 10);
-  httpServer.listen({
-    port,
-    host: "0.0.0.0",
-    reusePort: true,
-  }, () => {
-    console.log(`🌍 SERVER: serving on port ${port} (${process.env.NODE_ENV || 'development'})`);
+  httpServer.listen(port, "0.0.0.0", () => {
+    console.log(`🌍 SERVER: listening on port ${port} (${process.env.NODE_ENV || "development"})`);
   });
 })();

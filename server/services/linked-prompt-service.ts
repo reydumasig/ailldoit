@@ -30,6 +30,20 @@ interface BriefAnalysis {
   keywords: string[];
 }
 
+function safeParseJSON(content: string) {
+  const cleaned = content
+    .replace(/```json\s*/i, "")
+    .replace(/```/g, "")
+    .trim();
+
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    console.error("❌ Failed to parse JSON");
+    return null;
+  }
+}
+
 export class LinkedPromptService {
   private promptBlocks: PromptBlock[] = [
     // Skincare prompts
@@ -139,13 +153,14 @@ export class LinkedPromptService {
       if (process.env.GEMINI_API_KEY) {
         try {
           console.log(`🧠 LINKED PROMPT: Using Gemini for brief analysis`);
-          const result = await generateGeminiContent(prompt, "gemini-1.5-flash");
+          const result = await generateGeminiContent(prompt); // hardcoded gemini-2.5-flash
           
           if (result && result.response && result.response.candidates && result.response.candidates[0] && result.response.candidates[0].content) {
             const content = result.response.candidates[0].content.parts[0].text;
             if (content) {
               console.log(`✅ LINKED PROMPT: Gemini brief analysis successful`);
-              const parsed = JSON.parse(content);
+
+              const parsed = safeParseJSON(content)
               return {
                 category: parsed.category || 'lifestyle',
                 audience: parsed.audience || 'millennials',
@@ -273,7 +288,7 @@ export class LinkedPromptService {
       if (process.env.GEMINI_API_KEY) {
         try {
           console.log(`🧠 LINKED PROMPT: Using Gemini for custom prompt generation`);
-          const result = await generateGeminiContent(prompt, "gemini-1.5-flash");
+          const result = await generateGeminiContent(prompt); // hardcoded gemini-2.5-flash
           const content = result.response.candidates[0].content.parts[0].text;
           
           if (content) {

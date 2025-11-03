@@ -4,7 +4,11 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "dev": "NODE_ENV=development tsx server/index.ts",
+    "win:clear": "rimraf client/node_modules/.vite",
+    "dev-old": "set NODE_ENV=development && tsx server/index.ts",
+    "dev:server": "set NODE_ENV=development && tsx server/index.ts",
+    "dev:client": "npx vite --force",
+    "dev": "npm-run-all --parallel dev:server dev:client",
     "build:client": "vite build",
     "build:server": "esbuild server/server-prod.ts --platform=node --packages=external --bundle --format=esm --outfile=dist/index.js",
     "build": "npm run build:client && npm run build:server",
@@ -14,7 +18,8 @@
     "health": "curl -f http://localhost:8080/api/health || exit 1"
   },
   "dependencies": {
-    "@google/genai": "^1.11.0",
+    "@google/genai": "^1.28.0",
+    "@google/generative-ai": "^0.24.1",
     "@hookform/resolvers": "^3.10.0",
     "@jridgewell/trace-mapping": "^0.3.25",
     "@radix-ui/react-accordion": "^1.2.4",
@@ -78,6 +83,7 @@
     "memorystore": "^1.6.7",
     "multer": "^2.0.2",
     "next-themes": "^0.4.6",
+    "npm-run-all": "^4.1.5",
     "openai": "^5.11.0",
     "openid-client": "^6.6.2",
     "passport": "^0.7.0",
@@ -120,6 +126,7 @@
     "drizzle-kit": "^0.30.4",
     "esbuild": "^0.25.0",
     "postcss": "^8.4.47",
+    "rimraf": "^6.1.0",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.19.1",
     "typescript": "5.6.3"

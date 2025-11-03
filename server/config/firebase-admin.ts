@@ -2,6 +2,7 @@ import admin from 'firebase-admin';
 
 console.log('🔥 FIREBASE ADMIN: Initializing Firebase Admin SDK...');
 const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+const explicitBucket = process.env.FIREBASE_STORAGE_BUCKET; // ✅ Allow overriding
 
 if (!serviceAccount) {
   console.error('❌ FIREBASE ADMIN: FIREBASE_SERVICE_ACCOUNT_KEY missing from environment');
@@ -12,9 +13,15 @@ if (!serviceAccount) {
   try {
     console.log('🔍 FIREBASE ADMIN: Parsing service account JSON...');
     const serviceAccountKey = JSON.parse(serviceAccount);
+
     console.log('✅ FIREBASE ADMIN: Service account parsed successfully');
     console.log('🔍 FIREBASE ADMIN: Project ID:', serviceAccountKey.project_id);
     console.log('🔍 FIREBASE ADMIN: Client email:', serviceAccountKey.client_email);
+
+    const bucketName =
+      explicitBucket || `${serviceAccountKey.project_id}.appspot.com`;
+
+    console.log('🪣 FIREBASE ADMIN: Using storage bucket:', bucketName);
     
     if (!admin.apps.length) {
       console.log('🚀 FIREBASE ADMIN: Initializing Firebase Admin app...');

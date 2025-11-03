@@ -17,7 +17,21 @@ const app = initializeApp(firebaseConfig);
 const storage = getStorage(app);
 
 export class FirebaseStorageService {
-  private bucket = admin.apps.length > 0 ? admin.storage().bucket() : null;
+  
+  private bucket;
+
+  constructor() {
+    if (admin.apps.length === 0) {
+      throw new Error("Firebase Admin not initialized");
+    }
+
+    const bucketName = process.env.VITE_FIREBASE_STORAGE_BUCKET;
+    if (!bucketName) {
+      throw new Error("Missing VITE_FIREBASE_STORAGE_BUCKET in environment variables");
+    }
+
+    this.bucket = admin.storage().bucket(bucketName); // ✅ Use explicit bucket name
+  }
 
   /**
    * Upload a file to Firebase Storage and return the public URL
@@ -43,14 +57,23 @@ export class FirebaseStorageService {
           contentType,
           metadata: metadata || {},
         },
-        public: true, // Make the file publicly accessible
+        // public: true, // Make the file publicly accessible
       });
 
+      // ✅ Generate signed URL
+      const [url] = await file.getSignedUrl({
+        action: 'read',
+        expires: '03-01-2500',
+      });
+
+      console.log(`✅ FIREBASE STORAGE: File uploaded successfully: ${url}`);
+      return url;
+
       // Get the public URL
-      const publicUrl = `https://storage.googleapis.com/${this.bucket.name}/${filePath}`;
-      
-      console.log(`✅ FIREBASE STORAGE: File uploaded successfully: ${publicUrl}`);
-      return publicUrl;
+      // const publicUrl = `https://storage.googleapis.com/${this.bucket.name}/${filePath}`;
+      // console.log(`✅ FIREBASE STORAGE: File uploaded successfully: ${publicUrl}`);
+      // return publicUrl;
+
     } catch (error: any) {
       console.error('❌ FIREBASE STORAGE: Upload failed:', error);
       throw new Error(`Failed to upload file to Firebase Storage: ${error.message}`);
