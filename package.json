@@ -11,7 +11,7 @@
     "dev": "npm-run-all --parallel dev:server dev:client",
     "build:client": "vite build",
     "build:server": "esbuild server/server-prod.ts --platform=node --packages=external --bundle --format=esm --outfile=dist/index.js",
-    "build": "npm run build:client npm run build:server",
+    "build": "npm run build:client && npm run build:server",
     "start": "set NODE_ENV=production node dist/index.js",
     "build:win": "npm run build:client && npm run build:server",
     "start:win": "set NODE_ENV=production && node dist/index.js",
