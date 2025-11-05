@@ -61,7 +61,7 @@ if (missingFields.length > 0) {
 let app, auth, storage;
 
 try {
-  console.log('🔥 Initializing Firebase app......');
+  console.log('🔥 Initializing Firebase app.......');
   app = initializeApp(firebaseConfig);
   console.log('✅ Firebase app initialized successfully');
   
