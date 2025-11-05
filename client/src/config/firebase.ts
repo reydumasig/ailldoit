@@ -46,7 +46,7 @@ if (missingFields.length > 0) {
   errorDiv.innerHTML = `
     <div style="text-align: center; max-width: 500px; padding: 2rem;">
       <h1 style="color: #ef4444; margin-bottom: 1rem;">Configuration Error</h1>
-      <p style="margin-bottom: 1rem;">Firebase configuration is missing or incomplete. XXX</p>
+      <p style="margin-bottom: 1rem;">Firebase configuration is missing or incomplete.</p>
       <p style="font-size: 0.875rem; opacity: 0.7;">Missing fields: ${missingFields.join(', ')}</p>
       <p style="font-size: 0.875rem; opacity: 0.7; margin-top: 1rem;">Please check your environment variables.</p>
     </div>
