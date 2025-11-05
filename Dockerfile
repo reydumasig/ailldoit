@@ -41,6 +41,19 @@ RUN if [ -f .env.docker ]; then \
       echo "ℹ️ No .env.docker file found (skipping)"; \
     fi
 
+# Create .env file so Vite sees all Firebase + Stripe config at build time
+RUN echo "VITE_FIREBASE_API_KEY=$VITE_FIREBASE_API_KEY" > .env && \
+    echo "VITE_FIREBASE_AUTH_DOMAIN=$VITE_FIREBASE_AUTH_DOMAIN" >> .env && \
+    echo "VITE_FIREBASE_PROJECT_ID=$VITE_FIREBASE_PROJECT_ID" >> .env && \
+    echo "VITE_FIREBASE_STORAGE_BUCKET=$VITE_FIREBASE_STORAGE_BUCKET" >> .env && \
+    echo "VITE_FIREBASE_MESSAGING_SENDER_ID=$VITE_FIREBASE_MESSAGING_SENDER_ID" >> .env && \
+    echo "VITE_FIREBASE_APP_ID=$VITE_FIREBASE_APP_ID" >> .env && \
+    echo "VITE_STRIPE_PUBLIC_KEY=$VITE_STRIPE_PUBLIC_KEY" >> .env && \
+    echo "VITE_STRIPE_STARTER_PRICE_ID=$VITE_STRIPE_STARTER_PRICE_ID" >> .env && \
+    echo "VITE_STRIPE_GROWTH_PRICE_ID=$VITE_STRIPE_GROWTH_PRICE_ID" >> .env && \
+    echo "✅ .env file for Vite created:"
+RUN cat .env
+
 # Build the client and server
 RUN npm run build
 
