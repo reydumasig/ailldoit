@@ -61,7 +61,7 @@ RUN npm install --omit=dev --force
 COPY --from=builder /app/dist ./dist
 
 # Copy environment file for runtime
-COPY --from=builder /app/.env .env
+# COPY --from=builder /app/.env .env
 
 # Expose the port the app runs on
 EXPOSE 8080
