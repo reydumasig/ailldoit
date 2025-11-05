@@ -32,15 +32,13 @@ COPY . .
 # ENV VITE_STRIPE_STARTER_PRICE_ID=$VITE_STRIPE_STARTER_PRICE_ID
 # ENV VITE_STRIPE_GROWTH_PRICE_ID=$VITE_STRIPE_GROWTH_PRICE_ID
 
-# Optional: if .env.docker exists (for local builds), copy it so Vite sees VITE_ vars
-# Cloud Build will skip this silently since .env.docker isn't present there
-# RUN if [ -f .env.docker ]; then cp .env.docker .env; fi
-COPY .env.docker .env
-
+# ❌ Remove COPY .env.docker .env — Cloud Build doesn’t have it
+# ✅ Instead, just check for it locally, so local builds still work
 RUN if [ -f .env.docker ]; then \
-      echo "✅ .env.docker found, contents:" && cat .env.docker && cp .env.docker .env; \
+      echo "✅ Using .env.docker locally"; \
+      cp .env.docker .env; \
     else \
-      echo "❌ .env.docker not found, skipping copy"; \
+      echo "ℹ️ No .env.docker file found (skipping)"; \
     fi
 
 # Build the client and server
