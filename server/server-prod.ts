@@ -52,6 +52,10 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+
+  try {
+    console.log("🚀 Starting production server...");
+
   // CRITICAL: Set up static file serving BEFORE routes to avoid middleware conflicts
   console.log('🚀 PRODUCTION: Setting up static file serving...');
   const distPath = path3.resolve(process.cwd(), "dist/public");
@@ -106,16 +110,27 @@ app.use((req, res, next) => {
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || '8080', 10);
-  server.listen({
-    port,
-    host: "0.0.0.0",
-    reusePort: true,
-  }, () => {
+  server.listen(port, "0.0.0.0", () => {
     console.log(`🚀 PRODUCTION SERVER: serving on port ${port}`);
     console.log(`🌍 Environment: NODE_ENV=${process.env.NODE_ENV}`);
     console.log(`📁 Working directory: ${process.cwd()}`);
     console.log(`📂 Static files served from: ${distPath}`);
   });
+  // server.listen({
+  //   port,
+  //   host: "0.0.0.0",
+  //   reusePort: true,
+  // }, () => {
+  //   console.log(`🚀 PRODUCTION SERVER: serving on port ${port}`);
+  //   console.log(`🌍 Environment: NODE_ENV=${process.env.NODE_ENV}`);
+  //   console.log(`📁 Working directory: ${process.cwd()}`);
+  //   console.log(`📂 Static files served from: ${distPath}`);
+  // });
+
+  } catch (err) {
+    console.error("🔥 Failed to start server:", err);
+    process.exit(1);
+  }
 })();
 
 
