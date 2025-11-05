@@ -54,6 +54,8 @@ RUN echo "VITE_FIREBASE_API_KEY=$VITE_FIREBASE_API_KEY" > .env && \
     echo "✅ .env file for Vite created:"
 RUN cat .env
 
+RUN echo "🔥 DEBUG FIREBASE_API_KEY is: $VITE_FIREBASE_API_KEY"
+
 # Build the client and server
 RUN npm run build
 
@@ -74,7 +76,7 @@ RUN npm install --omit=dev --force
 COPY --from=builder /app/dist ./dist
 
 # Copy environment file for runtime
-# COPY --from=builder /app/.env .env
+COPY --from=builder /app/.env .env
 
 # Expose the port the app runs on
 EXPOSE 8080
