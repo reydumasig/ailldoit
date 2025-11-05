@@ -54,7 +54,8 @@ RUN echo "VITE_FIREBASE_API_KEY=$VITE_FIREBASE_API_KEY" > .env && \
     echo "✅ .env file for Vite created:"
 RUN cat .env
 
-RUN echo "🔥 DEBUG FIREBASE_API_KEY is: $VITE_FIREBASE_API_KEY"
+# 🔥 Debug print to confirm vars are set inside the build container
+RUN echo "🔥 Checking env vars in container:" && env | grep VITE_
 
 # Build the client and server
 RUN npm run build

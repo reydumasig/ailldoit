@@ -1,24 +1,25 @@
 steps:
-  # Step 1: Log in to Docker Hub using secrets from Secret Manager.
-  # This prevents Docker Hub rate-limiting issues when pulling base images.
-  # First, validate that the secrets are being read by Cloud Build.
+  # Step 1: Log in to Docker Hub
   - name: 'gcr.io/cloud-builders/docker'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
         echo "--- Validating Docker Hub secrets ---"
-        if [ -n "$$DOCKER_HUB_USERNAME" ] && [ -n "$$DOCKER_HUB_PASSWORD" ]; then echo "✅ Docker Hub credentials found."; else echo "❌ Docker Hub credentials NOT found."; exit 1; fi
+        if [ -n "$$DOCKER_HUB_USERNAME" ] && [ -n "$$DOCKER_HUB_PASSWORD" ]; then 
+          echo "✅ Docker Hub credentials found."; 
+        else 
+          echo "❌ Docker Hub credentials NOT found."; 
+          exit 1; 
+        fi
         echo "--- Attempting Docker Hub login ---"
         echo "$$DOCKER_HUB_PASSWORD" | docker login --username "$$DOCKER_HUB_USERNAME" --password-stdin
     secretEnv: ['DOCKER_HUB_USERNAME', 'DOCKER_HUB_PASSWORD']
     id: 'docker-login'
 
-  # Build the Docker image, passing secrets as build arguments.
-  # The Dockerfile will handle the `npm install` and `npm run build` steps.
+  # Step 2: Build the Docker image with secrets
   - name: 'gcr.io/cloud-builders/docker'
     entrypoint: 'bash'
-    # This step will now run after the login step completes successfully.
     waitFor: ['docker-login']
     args:
       - '-c'
@@ -48,11 +49,31 @@ steps:
       - 'VITE_STRIPE_STARTER_PRICE_ID'
       - 'VITE_STRIPE_GROWTH_PRICE_ID'
 
-# Push the container image to Artifact Registry
+  # Step 3: Push to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '${_IMAGE_NAME}']
+    id: 'push-image'
+    waitFor: ['docker-build']
+
+  # ✅ Step 4: Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim'
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ailldoit-dev
+      - --image=${_IMAGE_NAME}
+      - --region=us-central1
+      - --platform=managed
+      - --quiet
+    id: 'deploy'
+    waitFor: ['push-image']
+
+# Push image output
 images:
   - '${_IMAGE_NAME}'
 
-# Define the secrets to be used from Secret Manager
+# Secrets from Secret Manager
 availableSecrets:
   secretManager:
     - versionName: projects/${PROJECT_ID}/secrets/VITE_FIREBASE_API_KEY/versions/latest
