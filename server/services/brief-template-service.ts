@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { storage } from '../storage';
 import { gemini, generateGeminiContent } from './gemini-client';
+import { safeParseJSON } from 'server/utis/functions';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -16,7 +17,10 @@ export interface BriefTemplate {
   languagesSupported: string[];
   trendingTopic?: string;
   relevanceScore: number;
+  usageCount: number;
+  rating: number;
   category: string;
+  createdAt: Date;
 }
 
 export interface TrendingTopic {
@@ -39,7 +43,10 @@ export class BriefTemplateService {
       tone: 'Calm, Luxurious',
       languagesSupported: ['Tagalog', 'Bahasa', 'English'],
       category: 'Technology',
-      relevanceScore: 0.9
+      relevanceScore: 0.9,
+      usageCount: 452,
+      rating: 5,
+      createdAt: '',
     },
     {
       id: 'limited-time-flavor',
@@ -50,7 +57,10 @@ export class BriefTemplateService {
       tone: 'Bold, Energetic',
       languagesSupported: ['English', 'Tagalog'],
       category: 'Food & Beverage',
-      relevanceScore: 0.85
+      relevanceScore: 0.85,
+      usageCount: 783,
+      rating: 5,
+      createdAt: '',
     },
     {
       id: 'unique-best-friend',
@@ -61,7 +71,10 @@ export class BriefTemplateService {
       tone: 'Trustworthy, Simple',
       languagesSupported: ['English'],
       category: 'Lifestyle',
-      relevanceScore: 0.8
+      relevanceScore: 0.8,
+      usageCount: 490,
+      rating: 4,
+      createdAt: '',
     }
   ];
 
@@ -88,13 +101,10 @@ export class BriefTemplateService {
         ]
       }`;
 
-      const result = await gemini.models.generateContent({
-        model: "gemini-2.0-flash-exp",
-        contents: prompt,
-      });
-      const response = result.response.text();
+      const result = await generateGeminiContent(prompt); // hardcoded gemini-2.5-flash
+      const content = result.response.candidates[0].content.parts[0].text;
       
-      const parsed = JSON.parse(response);
+      const parsed = safeParseJSON(content);
       return parsed.topics || [];
     } catch (error) {
       console.error('Error fetching trending topics:', error);
@@ -214,18 +224,22 @@ export class BriefTemplateService {
           
           if (content) {
             console.log(`✅ BRIEF TEMPLATE: Gemini template generation successful`);
-            const parsed = JSON.parse(content);
+            const parsed = safeParseJSON(content);
+
+            console.log("PARSED JSON: ", Object.keys(parsed));
+
             return {
               id: `generated_${Date.now()}`,
-              title: parsed.title || "Generated Template",
-              prompt: parsed.prompt || "",
-              tags: parsed.tags || [],
-              tone: parsed.tone || "engaging",
-              category: parsed.category || "general",
+              title: parsed?.title || "Generated Template",
+              prompt: parsed?.prompt || "",
+              tags: parsed?.tags || [],
+              tone: parsed?.tone || "engaging",
+              category: parsed?.category || "general",
               usageCount: 0,
               rating: 0,
               createdAt: new Date(),
-              updatedAt: new Date()
+              updatedAt: new Date(),
+              platforms: [platform]
             };
           }
         } catch (geminiError) {
@@ -267,6 +281,8 @@ export class BriefTemplateService {
           languagesSupported: [language],
           trendingTopic: topic.topic,
           relevanceScore: topic.relevance,
+          usageCount: 0,
+          rating: 0,
           category: parsed.category || 'Trending'
         };
       }

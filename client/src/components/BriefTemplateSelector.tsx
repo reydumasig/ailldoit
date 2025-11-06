@@ -281,6 +281,10 @@ function TemplateCard({ template, onSelect, onCopy, variant }: TemplateCardProps
     }
   };
 
+  useEffect(() => {
+    console.log(template)
+  }, [])
+
   return (
     <Card className="hover:shadow-md transition-shadow cursor-pointer group">
       <CardHeader className="pb-3">
@@ -303,7 +307,7 @@ function TemplateCard({ template, onSelect, onCopy, variant }: TemplateCardProps
                 {template.tone}
               </span>
               <span className="text-xs px-2 py-1 border border-gray-200 text-gray-600 rounded-full">
-                Score: {Math.round(template.relevanceScore * 100)}%
+                Score: {template.relevanceScore ? Math.round(template.relevanceScore * 100) : 90}%
               </span>
             </div>
           </div>
@@ -334,7 +338,8 @@ function TemplateCard({ template, onSelect, onCopy, variant }: TemplateCardProps
         </div>
         <div className="flex justify-between items-center">
           <div className="text-xs text-ailldoit-muted">
-            {template.platforms.join(', ')} • {template.languagesSupported.join(', ')}
+            {/* {template.platforms && template.platforms?.join(', ')} • {template.languagesSupported.join(', ')} */}
+            {template.platforms && template.platforms?.join(', ')} • {template.languagesSupported && template.languagesSupported.join(', ')}
           </div>
           <Button
             onClick={() => onSelect(template)}

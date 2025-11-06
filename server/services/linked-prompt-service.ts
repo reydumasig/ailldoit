@@ -1,5 +1,6 @@
 import { OpenAI } from 'openai';
 import { gemini, generateGeminiContent } from './gemini-client';
+import { safeParseJSON } from 'server/utis/functions';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
@@ -30,19 +31,19 @@ interface BriefAnalysis {
   keywords: string[];
 }
 
-function safeParseJSON(content: string) {
-  const cleaned = content
-    .replace(/```json\s*/i, "")
-    .replace(/```/g, "")
-    .trim();
+// function safeParseJSON(content: string) {
+//   const cleaned = content
+//     .replace(/```json\s*/i, "")
+//     .replace(/```/g, "")
+//     .trim();
 
-  try {
-    return JSON.parse(cleaned);
-  } catch {
-    console.error("❌ Failed to parse JSON");
-    return null;
-  }
-}
+//   try {
+//     return JSON.parse(cleaned);
+//   } catch {
+//     console.error("❌ Failed to parse JSON");
+//     return null;
+//   }
+// }
 
 export class LinkedPromptService {
   private promptBlocks: PromptBlock[] = [
@@ -160,7 +161,7 @@ export class LinkedPromptService {
             if (content) {
               console.log(`✅ LINKED PROMPT: Gemini brief analysis successful`);
 
-              const parsed = safeParseJSON(content)
+              const parsed = safeParseJSON(content);
               return {
                 category: parsed.category || 'lifestyle',
                 audience: parsed.audience || 'millennials',

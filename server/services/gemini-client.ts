@@ -77,7 +77,7 @@ export async function generateGeminiContent(
     // Depending on SDK version, response may be plain text or object
     const text = (response as any)?.text ?? JSON.stringify(response, null, 2);
 
-    console.log("✅ GEMINI CLIENT: Content generation successful.", text);
+    console.log("✅ GEMINI CLIENT: Content generation successful.", text.length);
     return {
       response: {
         candidates: [
