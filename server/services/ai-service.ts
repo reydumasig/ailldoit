@@ -575,7 +575,7 @@ export class AIService {
       // Create enhanced prompt with audio cues for social media - avoid negative terms
       const enhancedPrompt = `${description}, ${style} style, cinematic quality, professional social media advertisement, high production value, clear visuals, smooth motion. Background music: upbeat, modern. Sound effects: subtle product sounds, ambient atmosphere.`;
       
-      let response = await gemini.generateVideos(enhancedPrompt, "veo-3.0-generate-preview", true); // ensures to download generated video
+      let response = await gemini.generateVideos(enhancedPrompt, "veo-3.1-generate-preview", true); // ensures to download generated video
 
       console.log('⏳ Veo 3 video generation result...', response);
 

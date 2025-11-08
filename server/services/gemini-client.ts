@@ -119,7 +119,7 @@ export async function generateImages(
 
 export async function generateVideos(
   prompt: string,
-  model: string = 'veo-3.0-generate-preview', // Use Veo 2 which works with regular API key
+  model: string = 'veo-3.1-generate-preview', // Use Veo 2 which works with regular API key
   download: boolean = true  // Download the video file
 ) {
 
@@ -128,11 +128,11 @@ export async function generateVideos(
     duration: '8s',
   }
 
-  console.log("🖼️ GEMINI CLIENT: Video Content generation started...");
+  console.log("🖼️ GEMINI CLIENT: Video Content generation started...", model);
 
   const client = getClientForModel(model);
   let operation = await client.models.generateVideos({
-    model: 'veo-2.0-generate-001',
+    model: model,
     source: {
       prompt: prompt
     },

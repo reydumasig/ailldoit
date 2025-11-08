@@ -380,9 +380,9 @@ export default function AIGenerator() {
               <p className="text-muted-foreground mb-6">
                 Click the button above to start generating AI-powered content for your campaign
               </p>
-              <div className="bg-gray-50 rounded-lg p-6 max-w-md mx-auto">
+              <div className="bg-gray-50 rounded-lg p-6 max-w-5xl mx-auto">
                 <p className="text-sm text-muted-foreground mb-2">Campaign Brief:</p>
-                <p className="text-foreground font-medium">{campaign.brief}</p>
+                <p className="text-foregroundx font-medium w-100">{campaign.brief}</p>
               </div>
             </div>
           ) : campaign.status === "generating" ? (

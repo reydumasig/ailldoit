@@ -357,7 +357,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Add comprehensive logging for AI service debugging
         console.log(`🔍 ROUTE DEBUG: About to call aiService.generateAdContent`);
         console.log(`🔍 ROUTE DEBUG: Campaign brief: "${campaign.brief.substring(0, 100)}..."`);
-        console.log(`🔍 ROUTE DEBUG: Platform: ${campaign.platform}, Language: ${campaign.language}`);
+        console.log(`🔍 ROUTE DEBUG: Platform: ${campaign.platform}, Language: ${campaign.language}, Campaign Type: ${campaign.campaignType}`);
         console.log(`🔍 ROUTE DEBUG: User ID: ${req.user!.id}`);
         console.log(`🔍 ROUTE DEBUG: GEMINI_API_KEY present: ${!!process.env.GEMINI_API_KEY}`);
         console.log(`🔍 ROUTE DEBUG: OPENAI_API_KEY present: ${!!process.env.OPENAI_API_KEY}`);
@@ -381,7 +381,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const assetIds: number[] = [];
         
         // Generate images if specified
-        if (campaign.campaignType === 'image' || campaign.campaignType === 'video') {
+        if (campaign.campaignType === 'image') {
           try {
             // Track image generation credits (5 credits per image)
             await CreditTrackingService.trackUsage(req.user!.id, 'imageGeneration', {
@@ -409,10 +409,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             console.warn('⚠️ Image generation failed, continuing without images:', imageError);
             generatedContent.imageAssets = [];
           }
-        }
         
-        // Generate video script and assets
-        if (campaign.campaignType === 'video') {
+        }else if (campaign.campaignType === 'video') { // Generate video script and assets
+          
           const videoScript = await aiService.generateVideoScript(
             campaign.brief,
             campaign.platform,
