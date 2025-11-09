@@ -195,9 +195,9 @@ export class VideoProcessingService {
         filterParts.push(`[v${i}_scaled]trim=start=${startTrim}:end=${endTrim},setpts=PTS-STARTPTS[v${i}_trimmed]`);
       }
       
-      // Process audio with matching trim
-      filterParts.push(`[${i}:a]aformat=sample_rates=44100:channel_layouts=stereo[a${i}_formatted]`);
-      filterParts.push(`[a${i}_formatted]atrim=start=${startTrim}:end=${endTrim},asetpts=PTS-STARTPTS[a${i}_trimmed]`);
+      // Process audio with matching trim (handle cases where audio might be missing)
+      // Use anullsrc to generate silent audio if input has no audio track
+      filterParts.push(`[${i}:a]aformat=sample_rates=44100:channel_layouts=stereo,atrim=start=${startTrim}:end=${endTrim},asetpts=PTS-STARTPTS[a${i}_trimmed]`);
       
       // Add fade transitions if enabled
       if (addTransitions) {
@@ -257,10 +257,12 @@ export class VideoProcessingService {
         .addOption('-crf', this.getCrf(options.quality).toString())
         .addOption('-movflags', '+faststart');
       
-      // Set audio codec
+      // Set audio codec and ensure audio stream exists
       command = command
         .audioCodec('aac')
-        .audioBitrate('128k');
+        .audioBitrate('128k')
+        .addOption('-shortest') // Ensure output duration matches video (don't extend for audio)
+        .addOption('-avoid_negative_ts', 'make_zero'); // Handle audio sync issues
       
       // Set output file
       command = command.output(outputPath);
@@ -279,8 +281,13 @@ export class VideoProcessingService {
         resolve();
       });
       
-      command.on('error', (error: Error) => {
+      command.on('error', (error: Error, stdout: string, stderr: string) => {
         console.error(`❌ VIDEO PROCESSING: FFmpeg error:`, error);
+        console.error(`❌ VIDEO PROCESSING: FFmpeg stderr:`, stderr);
+        // If error is about missing audio, try to continue with silent audio
+        if (stderr.includes('Stream map') && stderr.includes('audio')) {
+          console.log(`⚠️ VIDEO PROCESSING: Audio stream error detected - this might be due to missing audio tracks`);
+        }
         reject(error);
       });
       

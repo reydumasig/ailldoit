@@ -306,7 +306,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`   - Is 'shortVideo'? ${campaign.campaignType === 'shortVideo'}`);
       console.log(`   - Is 'video'? ${campaign.campaignType === 'video'}`);
       console.log(`   - Is 'image'? ${campaign.campaignType === 'image'}`);
-      console.log(`🔍 ROUTE DEBUG: Campaign Brief (first 200 chars): "${campaign.brief.substring(0, 200)}..."`);
+      console.log(`🔍 ROUTE DEBUG: Campaign Brief: "${campaign.brief?.substring(0, 200) || 'NO BRIEF'}..."`);
+      
+      // Auto-fix: If campaign type is old 'video', check brief and update
+      if (campaign.campaignType === 'video') {
+        console.log(`⚠️ ROUTE DEBUG: Campaign has old 'video' type - checking if it should be longVideo...`);
+        const brief = campaign.brief?.toLowerCase() || '';
+        const hasLongVideoIndicators = 
+          brief.includes('0:') || 
+          brief.includes('scene') || 
+          brief.includes('minute') ||
+          /\d+:\d+/.test(brief) ||
+          /\[scene\s*\d+/i.test(campaign.brief || '');
+        
+        if (hasLongVideoIndicators) {
+          console.log(`🔄 ROUTE DEBUG: Auto-updating campaign type from 'video' to 'longVideo' based on brief`);
+          await storage.updateCampaign(id, { campaignType: 'longVideo' }, req.user!.id);
+          campaign.campaignType = 'longVideo';
+        } else {
+          console.log(`🔄 ROUTE DEBUG: Auto-updating campaign type from 'video' to 'shortVideo'`);
+          await storage.updateCampaign(id, { campaignType: 'shortVideo' }, req.user!.id);
+          campaign.campaignType = 'shortVideo';
+        }
+      }
 
       // Import all services at once
       const { aiService } = await import("./services/ai-service");
