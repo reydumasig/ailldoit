@@ -110,6 +110,24 @@ export class VideoProcessingService {
   }
 
   /**
+   * Check if video file has audio track
+   */
+  private async hasAudioTrack(videoPath: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      ffmpeg.ffprobe(videoPath, (err: any, metadata: any) => {
+        if (err) {
+          console.warn(`⚠️ VIDEO PROCESSING: Could not probe video for audio:`, err);
+          resolve(false);
+          return;
+        }
+        const hasAudio = metadata.streams.some((stream: any) => stream.codec_type === 'audio');
+        console.log(`🔊 VIDEO PROCESSING: Video ${path.basename(videoPath)} has audio: ${hasAudio}`);
+        resolve(hasAudio);
+      });
+    });
+  }
+
+  /**
    * Download video from URL to local path
    */
   private async downloadVideo(url: string, localPath: string): Promise<void> {
@@ -231,23 +249,36 @@ export class VideoProcessingService {
    * Execute FFmpeg using fluent-ffmpeg
    */
   private async executeFFmpeg(inputFiles: string[], outputPath: string, filterComplex: string, options: VideoStitchingOptions): Promise<void> {
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
       console.log(`🚀 VIDEO PROCESSING: Running FFmpeg with fluent-ffmpeg`);
       console.log(`📁 VIDEO PROCESSING: Input files:`, inputFiles);
       console.log(`📁 VIDEO PROCESSING: Output path:`, outputPath);
       console.log(`🔧 VIDEO PROCESSING: Filter complex:`, filterComplex);
       
+      // Check if all input files have audio
+      const audioChecks = await Promise.all(
+        inputFiles.map(file => this.hasAudioTrack(file).catch(() => false))
+      );
+      const allHaveAudio = audioChecks.every(hasAudio => hasAudio);
+      const someHaveAudio = audioChecks.some(hasAudio => hasAudio);
+      
+      console.log(`🔊 VIDEO PROCESSING: Audio check results:`, audioChecks);
+      console.log(`🔊 VIDEO PROCESSING: All have audio: ${allHaveAudio}, Some have audio: ${someHaveAudio}`);
+      
       let command = ffmpeg();
       
       // Add input files
-      inputFiles.forEach(inputFile => {
+      inputFiles.forEach((inputFile, index) => {
         command = command.input(inputFile);
+        if (!audioChecks[index]) {
+          console.log(`⚠️ VIDEO PROCESSING: Input ${index} (${path.basename(inputFile)}) has no audio track`);
+        }
       });
       
       // Apply filter complex
       command = command.complexFilter(filterComplex);
       
-      // Map output
+      // Map output (video and audio)
       command = command.outputOptions(['-map', '[out]']);
       
       // Set video codec and quality
@@ -255,14 +286,27 @@ export class VideoProcessingService {
         .videoCodec('libx264')
         .addOption('-preset', this.getPreset(options.quality))
         .addOption('-crf', this.getCrf(options.quality).toString())
-        .addOption('-movflags', '+faststart');
+        .addOption('-movflags', '+faststart')
+        .addOption('-pix_fmt', 'yuv420p'); // Ensure compatibility
       
-      // Set audio codec and ensure audio stream exists
-      command = command
-        .audioCodec('aac')
-        .audioBitrate('128k')
-        .addOption('-shortest') // Ensure output duration matches video (don't extend for audio)
-        .addOption('-avoid_negative_ts', 'make_zero'); // Handle audio sync issues
+      // Set audio codec - handle missing audio gracefully
+      if (someHaveAudio || allHaveAudio) {
+        command = command
+          .audioCodec('aac')
+          .audioBitrate('128k')
+          .audioChannels(2)
+          .audioFrequency(44100)
+          .addOption('-shortest') // Ensure output duration matches video
+          .addOption('-avoid_negative_ts', 'make_zero'); // Handle audio sync issues
+      } else {
+        console.log(`⚠️ VIDEO PROCESSING: No audio in any input - output will be silent`);
+        // Still set audio codec to ensure compatibility (will be silent)
+        command = command
+          .audioCodec('aac')
+          .audioBitrate('128k')
+          .audioChannels(2)
+          .audioFrequency(44100);
+      }
       
       // Set output file
       command = command.output(outputPath);
