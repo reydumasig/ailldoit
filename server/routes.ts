@@ -415,37 +415,66 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (campaign.campaignType === 'video') {
           // Detect if this is a long video script (contains timing info or duration > 8s)
           const brief = campaign.brief.toLowerCase();
+          const originalBrief = campaign.brief; // Keep original for time extraction
+          
+          // More comprehensive detection
           const hasLongVideoIndicators = 
             brief.includes('0:') || 
             brief.includes('scene') || 
             brief.includes('second') || 
             brief.includes('minute') ||
             brief.includes('duration') ||
-            brief.match(/\d+:\d+/); // Matches time format like "0:20" or "1:15"
+            /\d+:\d+/.test(brief) || // Matches time format like "0:20" or "1:15"
+            /\[scene\s*\d+/i.test(originalBrief) || // Matches [Scene 1, [Scene 2, etc.
+            /\|\s*\d+:\d+–\d+:\d+/i.test(originalBrief); // Matches "| 0:00–0:20"
           
           // Extract target duration from brief if mentioned
           let targetDuration = 8; // Default to 8 seconds
-          const durationMatch = brief.match(/(\d+)\s*(?:second|sec|minute|min)/i);
-          if (durationMatch) {
-            const duration = parseInt(durationMatch[1]);
-            if (durationMatch[0].toLowerCase().includes('minute') || durationMatch[0].toLowerCase().includes('min')) {
-              targetDuration = duration * 60; // Convert minutes to seconds
-            } else {
-              targetDuration = duration;
-            }
-            // Cap at 60 seconds for safety
-            targetDuration = Math.min(targetDuration, 60);
-          } else if (hasLongVideoIndicators) {
-            // If script has scene markers, estimate duration
-            const sceneMatches = brief.match(/scene\s*\d+/gi);
-            if (sceneMatches && sceneMatches.length > 1) {
-              // Estimate: each scene is typically 8-15 seconds
-              targetDuration = Math.min(sceneMatches.length * 10, 60);
-            } else {
-              // Default to 30 seconds for long scripts
-              targetDuration = 30;
+          
+          // Try to extract duration from time ranges (e.g., "1:35–2:00" = 25 seconds, total = 120s)
+          const timeRangeMatches = originalBrief.matchAll(/\d+:(\d+)\s*[–-]\s*(\d+):(\d+)/gi);
+          let maxEndTime = 0;
+          for (const match of timeRangeMatches) {
+            const startMinutes = parseInt(match[1] || '0');
+            const startSeconds = parseInt(match[2] || '0');
+            const endMinutes = parseInt(match[3] || '0');
+            const endSeconds = parseInt(match[4] || '0');
+            const endTime = endMinutes * 60 + endSeconds;
+            maxEndTime = Math.max(maxEndTime, endTime);
+          }
+          
+          if (maxEndTime > 0) {
+            targetDuration = Math.min(maxEndTime, 60); // Cap at 60 seconds
+            console.log(`🎬 ROUTE: Detected time range, extracted duration: ${targetDuration}s`);
+          } else {
+            // Try explicit duration mentions
+            const durationMatch = brief.match(/(\d+)\s*(?:second|sec|minute|min)/i);
+            if (durationMatch) {
+              const duration = parseInt(durationMatch[1]);
+              if (durationMatch[0].toLowerCase().includes('minute') || durationMatch[0].toLowerCase().includes('min')) {
+                targetDuration = duration * 60; // Convert minutes to seconds
+              } else {
+                targetDuration = duration;
+              }
+              // Cap at 60 seconds for safety
+              targetDuration = Math.min(targetDuration, 60);
+              console.log(`🎬 ROUTE: Detected explicit duration: ${targetDuration}s`);
+            } else if (hasLongVideoIndicators) {
+              // If script has scene markers, estimate duration
+              const sceneMatches = originalBrief.match(/\[scene\s*\d+/gi);
+              if (sceneMatches && sceneMatches.length > 1) {
+                // Estimate: each scene is typically 15-20 seconds for professional scripts
+                targetDuration = Math.min(sceneMatches.length * 15, 60);
+                console.log(`🎬 ROUTE: Detected ${sceneMatches.length} scenes, estimated duration: ${targetDuration}s`);
+              } else {
+                // Default to 30 seconds for long scripts
+                targetDuration = 30;
+                console.log(`🎬 ROUTE: Detected long script indicators, using default: ${targetDuration}s`);
+              }
             }
           }
+          
+          console.log(`🎬 ROUTE: Final target duration: ${targetDuration}s`);
           
           const videoScript = await aiService.generateVideoScript(
             campaign.brief,
