@@ -694,22 +694,34 @@ Format as JSON with keys: hook, caption, hashtags, videoScript
     }
   }
 
-  // Generate longer videos by stitching multiple clips together
+  // Generate longer videos by stitching multiple clips together with frame-to-frame continuity
   async generateLongAdVideos(
     description: string, 
     targetDuration: number = 15,
     style: string = "modern advertising",
     platform: string = "general"
   ): Promise<string[]> {
-    console.log(`🎬 Starting long video generation for: "${description}"`);
+    console.log(`🎬 Starting long video generation with frame-to-frame continuity`);
+    console.log(`📝 Description: "${description.substring(0, 100)}..."`);
     console.log(`🎯 Target duration: ${targetDuration}s`);
     console.log(`📝 Style: ${style}, Platform: ${platform}`);
     
+    // Validate target duration
+    if (targetDuration < 8) {
+      console.warn(`⚠️ Target duration ${targetDuration}s is less than 8s, using single video generation`);
+      return await this.generateAdVideos(description, style);
+    }
+    
+    // Calculate actual duration (rounded up to nearest 8 seconds)
+    const segmentCount = Math.ceil(targetDuration / 8);
+    const actualDuration = segmentCount * 8;
+    console.log(`📊 Will generate ${segmentCount} segments of 8 seconds each (total: ${actualDuration}s)`);
+    
     try {
-      // Generate multiple video clips for stitching
+      // Generate multiple video clips with frame-to-frame continuity
       const clips = await videoProcessingService.generateVideoClipsForStitching(
         description,
-        targetDuration,
+        actualDuration, // Use calculated duration
         platform
       );
       
@@ -721,19 +733,20 @@ Format as JSON with keys: hook, caption, hashtags, videoScript
       
       // Configure stitching options
       const stitchingOptions: VideoStitchingOptions = {
-        targetDuration,
-        transitionDuration: 0.5,
+        targetDuration: actualDuration,
+        transitionDuration: 0.3, // Shorter transitions for smoother continuity
         outputFormat: 'mp4',
         quality: 'high',
-        addFadeTransitions: true,
+        addFadeTransitions: true, // Smooth transitions between segments
         addBackgroundMusic: false
       };
       
       // Stitch the videos together
-      console.log(`🔗 Stitching ${clips.length} clips into ${targetDuration}s video...`);
+      console.log(`🔗 Stitching ${clips.length} clips into ${actualDuration}s video with frame-to-frame continuity...`);
       const stitchedVideoUrl = await videoProcessingService.stitchVideos(clips, stitchingOptions);
       
       console.log(`✅ Long video generation completed: ${stitchedVideoUrl}`);
+      console.log(`📏 Final video duration: ${actualDuration}s (${segmentCount} segments × 8s each)`);
       return [stitchedVideoUrl];
       
     } catch (error: any) {

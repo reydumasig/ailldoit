@@ -19,18 +19,24 @@ const storage = getStorage(app);
 export class FirebaseStorageService {
   
   private bucket;
+  private isInitialized: boolean = false;
 
   constructor() {
     if (admin.apps.length === 0) {
-      throw new Error("Firebase Admin not initialized");
+      console.warn("⚠️ FIREBASE STORAGE: Firebase Admin not initialized - using local storage fallback");
+      this.isInitialized = false;
+      return;
     }
 
     const bucketName = process.env.VITE_FIREBASE_STORAGE_BUCKET;
     if (!bucketName) {
-      throw new Error("Missing VITE_FIREBASE_STORAGE_BUCKET in environment variables");
+      console.warn("⚠️ FIREBASE STORAGE: Missing VITE_FIREBASE_STORAGE_BUCKET - using local storage fallback");
+      this.isInitialized = false;
+      return;
     }
 
     this.bucket = admin.storage().bucket(bucketName); // ✅ Use explicit bucket name
+    this.isInitialized = true;
   }
 
   /**
@@ -45,7 +51,7 @@ export class FirebaseStorageService {
     try {
       console.log(`📤 FIREBASE STORAGE: Uploading file to ${filePath}`);
       
-      if (!this.bucket) {
+      if (!this.isInitialized || !this.bucket) {
         throw new Error('Firebase Admin not initialized - cannot upload to Firebase Storage');
       }
       
@@ -82,6 +88,7 @@ export class FirebaseStorageService {
 
   /**
    * Upload a video file from a local path to Firebase Storage
+   * Falls back to local storage if Firebase is not initialized
    */
   async uploadVideoFromPath(
     localFilePath: string,
@@ -89,6 +96,31 @@ export class FirebaseStorageService {
     metadata?: { [key: string]: string }
   ): Promise<string> {
     try {
+      // If Firebase is not initialized, use local storage fallback
+      if (!this.isInitialized) {
+        console.log(`📁 FIREBASE STORAGE: Using local storage fallback for ${fileName}`);
+        
+        // Move file to videos directory for local serving
+        const fs = await import('fs');
+        const path = await import('path');
+        const videosDir = path.join(process.cwd(), 'videos');
+        
+        // Ensure videos directory exists
+        if (!fs.existsSync(videosDir)) {
+          fs.mkdirSync(videosDir, { recursive: true });
+        }
+        
+        const destPath = path.join(videosDir, fileName);
+        
+        // Copy file to videos directory (don't delete original yet)
+        fs.copyFileSync(localFilePath, destPath);
+        
+        // Return local URL path
+        const localUrl = `/videos/${fileName}`;
+        console.log(`✅ FIREBASE STORAGE: File available at local path: ${localUrl}`);
+        return localUrl;
+      }
+      
       console.log(`📤 FIREBASE STORAGE: Uploading video from ${localFilePath}`);
       
       // Read the file
