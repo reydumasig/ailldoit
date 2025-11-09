@@ -308,7 +308,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Check credits before generation - Pre-validate without deducting
       const textCreditsNeeded = 1;
       const imageCreditsNeeded = campaign.campaignType === 'image' ? 5 : 0;
-      const videoCreditsNeeded = campaign.campaignType === 'video' ? 10 : 0;
+      // Calculate video credits based on type
+      let videoCreditsNeeded = 0;
+      if (campaign.campaignType === 'shortVideo') {
+        videoCreditsNeeded = 10; // 8-second video
+      } else if (campaign.campaignType === 'longVideo') {
+        videoCreditsNeeded = 60; // Estimate for 60-second video (8 segments × 15 credits)
+      } else if (campaign.campaignType === 'video') {
+        // Backward compatibility: treat old "video" type as shortVideo
+        videoCreditsNeeded = 10;
+      }
       const totalCreditsNeeded = textCreditsNeeded + imageCreditsNeeded + videoCreditsNeeded;
       
       // Check if user has enough credits
@@ -380,8 +389,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Store generated assets in database
         const assetIds: number[] = [];
         
-        // Generate images if specified
-        if (campaign.campaignType === 'image' || campaign.campaignType === 'video') {
+        // Generate images ONLY if campaign type is 'image'
+        if (campaign.campaignType === 'image') {
           try {
             // Track image generation credits (5 credits per image)
             await CreditTrackingService.trackUsage(req.user!.id, 'imageGeneration', {
@@ -411,8 +420,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
         
-        // Generate video script and assets
-        if (campaign.campaignType === 'video') {
+        // Generate SHORT video (8 seconds) ONLY if campaign type is 'shortVideo'
+        if (campaign.campaignType === 'shortVideo' || campaign.campaignType === 'video') {
+          // Backward compatibility: treat old "video" type as shortVideo
+          console.log(`🎬 ROUTE: Generating short video (8 seconds) for campaign type: ${campaign.campaignType}`);
+          
+          const videoScript = await aiService.generateVideoScript(
+            campaign.brief,
+            campaign.platform,
+            8
+          );
+          generatedContent.videoScript = videoScript;
+          
+          // Track video generation credits (15 credits per video)
+          await CreditTrackingService.trackUsage(req.user!.id, 'videoGeneration', {
+            campaignId: id,
+            platform: campaign.platform,
+            metadata: { type: 'campaign_short_video', duration: 8 }
+          });
+
+          // Generate standard 8-second video
+          const videoAssets = await aiService.generateAdVideos(
+            `${campaign.brief} for ${campaign.platform} social media`,
+            "modern advertising"
+          );
+          
+          generatedContent.videoAssets = videoAssets;
+          
+          // Store video assets
+          for (const videoUrl of videoAssets || []) {
+            const asset = await storage.createAsset({
+              campaignId: id,
+              userId: req.user!.id,
+              type: 'video',
+              provider: 'gemini-veo',
+              url: videoUrl,
+              metadata: { 
+                generatedAt: new Date().toISOString(),
+                duration: 8,
+                isLongVideo: false
+              }
+            });
+            assetIds.push(asset.id);
+          }
+        }
+        
+        // Generate LONG video (60 seconds) ONLY if campaign type is 'longVideo'
+        if (campaign.campaignType === 'longVideo') {
+          console.log(`🎬 ROUTE: Generating long video for campaign type: longVideo`);
+          
           // Detect if this is a long video script (contains timing info or duration > 8s)
           const brief = campaign.brief.toLowerCase();
           const originalBrief = campaign.brief; // Keep original for time extraction
@@ -429,7 +485,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             /\|\s*\d+:\d+–\d+:\d+/i.test(originalBrief); // Matches "| 0:00–0:20"
           
           // Extract target duration from brief if mentioned
-          let targetDuration = 8; // Default to 8 seconds
+          let targetDuration = 60; // Default to 60 seconds for long video campaigns
           
           // Try to extract duration from time ranges (e.g., "1:35–2:00" = 25 seconds, total = 120s)
           // Format: "minutes:seconds–minutes:seconds" like "0:00–0:20" or "1:35–2:00"
@@ -469,14 +525,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 targetDuration = Math.min(sceneMatches.length * 15, 60);
                 console.log(`🎬 ROUTE: Detected ${sceneMatches.length} scenes, estimated duration: ${targetDuration}s`);
               } else {
-                // Default to 30 seconds for long scripts
-                targetDuration = 30;
-                console.log(`🎬 ROUTE: Detected long script indicators, using default: ${targetDuration}s`);
+                // Default to 60 seconds for long video campaigns
+                targetDuration = 60;
+                console.log(`🎬 ROUTE: Using default long video duration: ${targetDuration}s`);
               }
             }
           }
           
-          console.log(`🎬 ROUTE: Final target duration: ${targetDuration}s`);
+          console.log(`🎬 ROUTE: Final target duration for long video: ${targetDuration}s`);
           
           const videoScript = await aiService.generateVideoScript(
             campaign.brief,
@@ -485,31 +541,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
           );
           generatedContent.videoScript = videoScript;
           
-          // Track video generation credits (15 credits per video, more for long videos)
-          const creditsNeeded = targetDuration > 8 ? Math.ceil(targetDuration / 8) * 15 : 15;
+          // Track video generation credits (15 credits per 8-second segment)
+          const creditsNeeded = Math.ceil(targetDuration / 8) * 15;
           await CreditTrackingService.trackUsage(req.user!.id, 'videoGeneration', {
             campaignId: id,
             platform: campaign.platform,
-            metadata: { type: targetDuration > 8 ? 'campaign_long_video' : 'campaign_video', duration: targetDuration }
+            metadata: { type: 'campaign_long_video', duration: targetDuration }
           });
 
-          // Use long video generation if target duration > 8 seconds
-          let videoAssets: string[] = [];
-          if (targetDuration > 8) {
-            console.log(`🎬 ROUTE: Detected long video script, using long video generation (${targetDuration}s)`);
-            videoAssets = await aiService.generateLongAdVideos(
-              campaign.brief,
-              targetDuration,
-              "modern advertising",
-              campaign.platform
-            );
-          } else {
-            console.log(`🎬 ROUTE: Using standard video generation (${targetDuration}s)`);
-            videoAssets = await aiService.generateAdVideos(
-              `${campaign.brief} for ${campaign.platform} social media`,
-              "modern advertising"
-            );
-          }
+          // Always use long video generation for longVideo campaign type
+          console.log(`🎬 ROUTE: Using long video generation with Veo 3.1 (${targetDuration}s)`);
+          const videoAssets = await aiService.generateLongAdVideos(
+            campaign.brief,
+            targetDuration,
+            "modern advertising",
+            campaign.platform
+          );
           
           generatedContent.videoAssets = videoAssets;
           
@@ -519,12 +566,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
               campaignId: id,
               userId: req.user!.id,
               type: 'video',
-              provider: targetDuration > 8 ? 'gemini-veo-3.1' : 'gemini-veo',
+              provider: 'gemini-veo-3.1',
               url: videoUrl,
               metadata: { 
                 generatedAt: new Date().toISOString(),
                 duration: targetDuration,
-                isLongVideo: targetDuration > 8
+                isLongVideo: true
               }
             });
             assetIds.push(asset.id);

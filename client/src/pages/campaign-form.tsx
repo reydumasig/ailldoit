@@ -13,7 +13,7 @@ import { insertCampaignSchema } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
-import { ArrowLeft, Wand2, Video, Image as ImageIcon, Lightbulb, Sparkles } from "lucide-react";
+import { ArrowLeft, Wand2, Video, Image as ImageIcon, Lightbulb, Sparkles, Film } from "lucide-react";
 import BriefTemplateSelector from "@/components/BriefTemplateSelector";
 import PromptSelectorTool from "@/components/PromptSelectorTool";
 import { LinkedPromptSuggestions } from "@/components/LinkedPromptSuggestions";
@@ -40,7 +40,8 @@ const languages = [
 ];
 
 const campaignTypes = [
-  { id: "video", name: "Video Content", icon: Video },
+  { id: "shortVideo", name: "Short Video Content", icon: Video },
+  { id: "longVideo", name: "Long Video Content", icon: Film },
   { id: "image", name: "Image Content", icon: ImageIcon },
 ];
 
@@ -49,7 +50,7 @@ export default function CampaignForm() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [selectedPlatform, setSelectedPlatform] = useState("tiktok");
-  const [selectedCampaignType, setSelectedCampaignType] = useState("video");
+  const [selectedCampaignType, setSelectedCampaignType] = useState("shortVideo");
   const [showTemplateSelector, setShowTemplateSelector] = useState(false);
   const [showPromptSelector, setShowPromptSelector] = useState(false);
 
@@ -74,7 +75,7 @@ export default function CampaignForm() {
       description: "",
       language: "english",
       platform: "tiktok",
-      campaignType: "video",
+      campaignType: "shortVideo",
       status: "draft",
       generatedContent: null,
       variants: null,
@@ -93,7 +94,7 @@ export default function CampaignForm() {
         description: (existingCampaign as any).description || "",
         language: (existingCampaign as any).language || "english",
         platform: (existingCampaign as any).platform || "tiktok",
-        campaignType: (existingCampaign as any).campaignType || "video",
+        campaignType: (existingCampaign as any).campaignType || "shortVideo",
         status: (existingCampaign as any).status || "draft",
         // Don't load large fields that cause payload issues
         generatedContent: null,
@@ -101,7 +102,9 @@ export default function CampaignForm() {
         publishingSettings: null,
       });
       setSelectedPlatform((existingCampaign as any).platform || "tiktok");
-      setSelectedCampaignType((existingCampaign as any).campaignType || "video");
+      const existingType = (existingCampaign as any).campaignType;
+      // Map old "video" type to "shortVideo" for backward compatibility
+      setSelectedCampaignType(existingType === "video" ? "shortVideo" : (existingType || "shortVideo"));
     }
   }, [existingCampaign, isEditing, form]);
 
@@ -446,7 +449,7 @@ export default function CampaignForm() {
 
                       <div>
                         <FormLabel>Campaign Type</FormLabel>
-                        <div className="grid grid-cols-2 gap-3 mt-2">
+                        <div className="grid grid-cols-3 gap-3 mt-2">
                           {campaignTypes.map((type) => {
                             const Icon = type.icon;
                             return (

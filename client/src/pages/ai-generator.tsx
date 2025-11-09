@@ -524,7 +524,7 @@ export default function AIGenerator() {
                       <div className="aspect-[9/16] bg-gradient-to-b from-yellow-200 to-orange-200 rounded-xl flex items-center justify-center relative overflow-hidden">
                         {content?.videoAssets && content.videoAssets.length > 0 ? 
                           renderVideo(content.videoAssets[0], "w-full h-full object-cover rounded-xl")
-                        : campaign.campaignType === 'video' ? (
+                        : (campaign.campaignType === 'video' || campaign.campaignType === 'shortVideo' || campaign.campaignType === 'longVideo') ? (
                           <div className="text-center p-4">
                             <Play className="w-12 h-12 text-muted-foreground mx-auto mb-2" />
                             <p className="text-sm text-muted-foreground">AI Video</p>
