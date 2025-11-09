@@ -297,6 +297,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!campaign) {
         return res.status(404).json({ message: "Campaign not found" });
       }
+      
+      // Debug: Log campaign type
+      console.log(`🔍 ROUTE DEBUG: Campaign ID: ${id}`);
+      console.log(`🔍 ROUTE DEBUG: Campaign Type: "${campaign.campaignType}"`);
+      console.log(`🔍 ROUTE DEBUG: Campaign Type Check:`);
+      console.log(`   - Is 'longVideo'? ${campaign.campaignType === 'longVideo'}`);
+      console.log(`   - Is 'shortVideo'? ${campaign.campaignType === 'shortVideo'}`);
+      console.log(`   - Is 'video'? ${campaign.campaignType === 'video'}`);
+      console.log(`   - Is 'image'? ${campaign.campaignType === 'image'}`);
+      console.log(`🔍 ROUTE DEBUG: Campaign Brief (first 200 chars): "${campaign.brief.substring(0, 200)}..."`);
 
       // Import all services at once
       const { aiService } = await import("./services/ai-service");
