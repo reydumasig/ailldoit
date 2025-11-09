@@ -413,25 +413,73 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         // Generate video script and assets
         if (campaign.campaignType === 'video') {
+          // Detect if this is a long video script (contains timing info or duration > 8s)
+          const brief = campaign.brief.toLowerCase();
+          const hasLongVideoIndicators = 
+            brief.includes('0:') || 
+            brief.includes('scene') || 
+            brief.includes('second') || 
+            brief.includes('minute') ||
+            brief.includes('duration') ||
+            brief.match(/\d+:\d+/); // Matches time format like "0:20" or "1:15"
+          
+          // Extract target duration from brief if mentioned
+          let targetDuration = 8; // Default to 8 seconds
+          const durationMatch = brief.match(/(\d+)\s*(?:second|sec|minute|min)/i);
+          if (durationMatch) {
+            const duration = parseInt(durationMatch[1]);
+            if (durationMatch[0].toLowerCase().includes('minute') || durationMatch[0].toLowerCase().includes('min')) {
+              targetDuration = duration * 60; // Convert minutes to seconds
+            } else {
+              targetDuration = duration;
+            }
+            // Cap at 60 seconds for safety
+            targetDuration = Math.min(targetDuration, 60);
+          } else if (hasLongVideoIndicators) {
+            // If script has scene markers, estimate duration
+            const sceneMatches = brief.match(/scene\s*\d+/gi);
+            if (sceneMatches && sceneMatches.length > 1) {
+              // Estimate: each scene is typically 8-15 seconds
+              targetDuration = Math.min(sceneMatches.length * 10, 60);
+            } else {
+              // Default to 30 seconds for long scripts
+              targetDuration = 30;
+            }
+          }
+          
           const videoScript = await aiService.generateVideoScript(
             campaign.brief,
             campaign.platform,
-            8
+            targetDuration
           );
           generatedContent.videoScript = videoScript;
           
-          // Track video generation credits (15 credits per video)
+          // Track video generation credits (15 credits per video, more for long videos)
+          const creditsNeeded = targetDuration > 8 ? Math.ceil(targetDuration / 8) * 15 : 15;
           await CreditTrackingService.trackUsage(req.user!.id, 'videoGeneration', {
             campaignId: id,
             platform: campaign.platform,
-            metadata: { type: 'campaign_video' }
+            metadata: { type: targetDuration > 8 ? 'campaign_long_video' : 'campaign_video', duration: targetDuration }
           });
 
-          // Generate actual video content
-          const videoAssets = await aiService.generateAdVideos(
-            `${campaign.brief} for ${campaign.platform} social media`,
-            "modern advertising"
-          );
+          // Use long video generation if target duration > 8 seconds
+          let videoAssets: string[] = [];
+          if (targetDuration > 8) {
+            console.log(`🎬 ROUTE: Detected long video script, using long video generation (${targetDuration}s)`);
+            videoAssets = await aiService.generateLongAdVideos(
+              campaign.brief,
+              targetDuration,
+              "modern advertising",
+              campaign.platform
+            );
+          } else {
+            console.log(`🎬 ROUTE: Using standard video generation (${targetDuration}s)`);
+            videoAssets = await aiService.generateAdVideos(
+              `${campaign.brief} for ${campaign.platform} social media`,
+              "modern advertising"
+            );
+          }
+          
           generatedContent.videoAssets = videoAssets;
           
           // Store video assets
@@ -440,9 +488,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
               campaignId: id,
               userId: req.user!.id,
               type: 'video',
-              provider: 'gemini-veo',
+              provider: targetDuration > 8 ? 'gemini-veo-3.1' : 'gemini-veo',
               url: videoUrl,
-              metadata: { generatedAt: new Date().toISOString() }
+              metadata: { 
+                generatedAt: new Date().toISOString(),
+                duration: targetDuration,
+                isLongVideo: targetDuration > 8
+              }
             });
             assetIds.push(asset.id);
           }
