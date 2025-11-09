@@ -521,12 +521,51 @@ export class VideoProcessingService {
           
           // Generate video using Veo 3.1 with advanced features
           console.log(`🎬 VIDEO PROCESSING: Generating video with Veo 3.1 advanced features...`);
-          const videoUrls = await gemini.generateVideos(
-            enhancedPrompt,
-            'veo-3.1-generate-preview',
-            true, // download
-            generationOptions
-          );
+          
+          // Retry logic for quota/rate limit errors
+          let videoUrls: string[] = [];
+          let lastError: any = null;
+          const maxRetries = 3;
+          const retryDelays = [5000, 15000, 30000]; // 5s, 15s, 30s
+          
+          for (let retry = 0; retry <= maxRetries; retry++) {
+            try {
+              if (retry > 0) {
+                const delay = retryDelays[retry - 1];
+                console.log(`🔄 VIDEO PROCESSING: Retry ${retry}/${maxRetries} after ${delay}ms delay...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+              }
+              
+              videoUrls = await gemini.generateVideos(
+                enhancedPrompt,
+                'veo-3.1-generate-preview',
+                true, // download
+                generationOptions
+              );
+              
+              if (videoUrls && videoUrls.length > 0) {
+                break; // Success, exit retry loop
+              }
+            } catch (error: any) {
+              lastError = error;
+              const errorMessage = error?.message || JSON.stringify(error);
+              const isQuotaError = errorMessage.includes('429') || 
+                                   errorMessage.includes('quota') || 
+                                   errorMessage.includes('RESOURCE_EXHAUSTED') ||
+                                   errorMessage.includes('rate-limit');
+              
+              if (isQuotaError && retry < maxRetries) {
+                console.warn(`⚠️ VIDEO PROCESSING: Quota/rate limit error on segment ${i + 1}, will retry...`);
+                continue; // Retry
+              } else if (isQuotaError) {
+                console.error(`❌ VIDEO PROCESSING: Quota exceeded after ${maxRetries} retries for segment ${i + 1}`);
+                throw new Error(`API quota exceeded. Please check your Gemini API quota and billing. Segment ${i + 1} failed after ${maxRetries} retries.`);
+              } else {
+                // Non-quota error, don't retry
+                throw error;
+              }
+            }
+          }
           
           if (videoUrls && videoUrls.length > 0) {
             const videoUrl = videoUrls[0];
@@ -583,6 +622,15 @@ export class VideoProcessingService {
       }
       
       console.log(`🎬 VIDEO PROCESSING: Generated ${clips.length} clips for stitching`);
+      
+      if (clips.length < segmentCount) {
+        console.warn(`⚠️ VIDEO PROCESSING: Only generated ${clips.length}/${segmentCount} segments. Some segments may have failed.`);
+      }
+      
+      if (clips.length === 0) {
+        throw new Error(`Failed to generate any video segments. All ${segmentCount} segments failed. Check API quota and billing.`);
+      }
+      
       console.log(`✅ VIDEO PROCESSING: Used Veo 3.1 features: Scene Extension, Frame-locking, Reference Images`);
       
       return clips.map(clip => ({

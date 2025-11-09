@@ -752,7 +752,19 @@ Format as JSON with keys: hook, caption, hashtags, videoScript
     } catch (error: any) {
       console.error('❌ Long video generation failed:', error);
       
-      // Fallback to single video generation
+      const errorMessage = error?.message || JSON.stringify(error);
+      const isQuotaError = errorMessage.includes('quota') || 
+                          errorMessage.includes('429') || 
+                          errorMessage.includes('RESOURCE_EXHAUSTED') ||
+                          errorMessage.includes('rate-limit');
+      
+      // Don't fallback if it's a quota error - show clear error message
+      if (isQuotaError) {
+        console.error('💳 Long video generation failed due to API quota exceeded');
+        throw new Error(`API quota exceeded. Cannot generate long video. Please check your Gemini API quota and billing settings at https://ai.dev/usage?tab=rate-limit. Error: ${errorMessage}`);
+      }
+      
+      // Fallback to single video generation only for non-quota errors
       console.log('🔄 Falling back to single video generation...');
       try {
         return await this.generateAdVideos(description, style);
