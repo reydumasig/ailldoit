@@ -432,7 +432,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           let targetDuration = 8; // Default to 8 seconds
           
           // Try to extract duration from time ranges (e.g., "1:35–2:00" = 25 seconds, total = 120s)
-          const timeRangeMatches = originalBrief.matchAll(/\d+:(\d+)\s*[–-]\s*(\d+):(\d+)/gi);
+          // Format: "minutes:seconds–minutes:seconds" like "0:00–0:20" or "1:35–2:00"
+          const timeRangeMatches = originalBrief.matchAll(/(\d+):(\d+)\s*[–-]\s*(\d+):(\d+)/gi);
           let maxEndTime = 0;
           for (const match of timeRangeMatches) {
             const startMinutes = parseInt(match[1] || '0');
@@ -441,6 +442,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const endSeconds = parseInt(match[4] || '0');
             const endTime = endMinutes * 60 + endSeconds;
             maxEndTime = Math.max(maxEndTime, endTime);
+            console.log(`🎬 ROUTE: Found time range ${match[0]}, end time: ${endTime}s`);
           }
           
           if (maxEndTime > 0) {
