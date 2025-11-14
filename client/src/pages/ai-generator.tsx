@@ -32,6 +32,11 @@ import {
 } from "lucide-react";
 import { SiTiktok } from "react-icons/si";
 
+type GenerateContentMutationVars = {
+  id: string;
+  type: string;
+};
+
 export default function AIGenerator() {
   const [location, setLocation] = useLocation();
   const { toast } = useToast();
@@ -90,13 +95,25 @@ export default function AIGenerator() {
   // Note: Removed complex video status checking to simplify video display
 
   const generateContent = useMutation({
-    mutationFn: async (id: string) => {
-      const response = await apiRequest("POST", `/api/campaigns/${id}/generate`);
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Generation failed');
+    mutationFn: async ({id, type}: GenerateContentMutationVars) => {
+
+      console.log("From Mutation: ", type)
+
+      if(type == "long-video"){
+        const response = await apiRequest("POST", `/api/campaigns/${id}/generate-long-video`);
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.message || 'Generation failed');
+        }
+        return response.json();
+      }else{
+        const response = await apiRequest("POST", `/api/campaigns/${id}/generate`);
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.message || 'Generation failed');
+        }
+        return response.json();
       }
-      return response.json();
     },
     onSuccess: () => {
       toast({
@@ -286,7 +303,10 @@ export default function AIGenerator() {
   }
 
   const handleGenerate = () => {
-    generateContent.mutate(campaignId);
+    // generateContent.mutate(campaignId);
+    if(!campaign.campaignType) return false
+    generateContent.mutate({id: campaignId, type: campaign?.campaignType});
+    // console.log(campaign);
   };
 
   const handlePublish = () => {

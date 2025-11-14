@@ -568,7 +568,7 @@ export class AIService {
     }
 
     try {
-      console.log(`Generating video with Veo 3: "${description}"`);
+      console.log(`Generating video with Veo 3: "${description.substring(0, 50)}"`);
       console.log(`Style: ${style}`);
       console.log('⏳ Veo 3 video generation starting...');
       
@@ -590,7 +590,7 @@ export class AIService {
 
   // Main video generation method - handle billing restrictions gracefully
   async generateAdVideos(description: string, style: string = "modern advertising"): Promise<string[]> {
-    console.log(`🎬 Starting video generation for: "${description}"`);
+    console.log(`🎬 Starting video generation for: "${description.substring(0, 50)}"`);
     console.log(`📝 Style: ${style}`);
     
     try {

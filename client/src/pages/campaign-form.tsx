@@ -41,6 +41,7 @@ const languages = [
 
 const campaignTypes = [
   { id: "video", name: "Video Content", icon: Video },
+  // { id: "long-video", name: "Long Video Content", icon: Video },
   { id: "image", name: "Image Content", icon: ImageIcon },
 ];
 
