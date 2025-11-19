@@ -17,10 +17,10 @@ import { ArrowLeft, Wand2, Video, Image as ImageIcon, Lightbulb, Sparkles, Film 
 import BriefTemplateSelector from "@/components/BriefTemplateSelector";
 import PromptSelectorTool from "@/components/PromptSelectorTool";
 import { LinkedPromptSuggestions } from "@/components/LinkedPromptSuggestions";
-import { 
-  SiTiktok, 
-  SiInstagram, 
-  SiFacebook 
+import {
+  SiTiktok,
+  SiInstagram,
+  SiFacebook
 } from "react-icons/si";
 import { cn } from "@/lib/utils";
 
@@ -40,9 +40,9 @@ const languages = [
 ];
 
 const campaignTypes = [
-  { id: "shortVideo", name: "Short Video Content", icon: Video },
-  { id: "longVideo", name: "Long Video Content", icon: Film },
-  { id: "image", name: "Image Content", icon: ImageIcon },
+  { id: "shortVideo", name: "Short Video", icon: Video },
+  { id: "longVideo", name: "Long Video", icon: Film },
+  { id: "image", name: "Image", icon: ImageIcon },
 ];
 
 export default function CampaignForm() {
@@ -127,17 +127,17 @@ export default function CampaignForm() {
     onSuccess: (campaign) => {
       console.log(`🎉 Campaign ${isEditing ? 'updated' : 'created'} successfully:`, campaign);
       console.log('🆔 Campaign ID:', campaign.id);
-      
+
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
       if (isEditing) {
         queryClient.invalidateQueries({ queryKey: ["/api/campaigns", editCampaignId] });
       }
-      
+
       toast({
         title: `Campaign ${isEditing ? 'updated' : 'created'} successfully`,
         description: `Your campaign has been ${isEditing ? 'updated' : 'created'} and is ready for content generation.`,
       });
-      
+
       // Navigate to generation page with the campaign ID
       const campaignId = isEditing ? editCampaignId : campaign.id;
       if (campaignId) {
@@ -183,7 +183,7 @@ export default function CampaignForm() {
     console.log('🚀 Form submitted with data:', data);
     console.log('📊 Form state:', form.formState);
     console.log('🚨 Form errors:', form.formState.errors);
-    
+
     // Clean up the data to avoid large payloads - only send essential fields
     const campaignData = {
       name: data.name || `${selectedPlatform} Campaign`,
@@ -195,7 +195,7 @@ export default function CampaignForm() {
       status: data.status || "draft",
       // Don't send heavy data like generatedContent, variants, etc. in updates
     };
-    
+
     console.log('📤 Sending optimized campaign data:', campaignData);
     console.log('📊 Payload size estimate:', JSON.stringify(campaignData).length, 'characters');
     createCampaign.mutate(campaignData);
@@ -204,12 +204,12 @@ export default function CampaignForm() {
   const handleSubmitClick = (e: React.MouseEvent) => {
     console.log('🖱️ CREATE CAMPAIGN BUTTON CLICKED - This should be the ONLY trigger for campaign creation');
     e.preventDefault();
-    
+
     // Check form validity
     const formData = form.getValues();
     console.log('📋 Current form values:', formData);
     console.log('🔍 Form errors:', form.formState.errors);
-    
+
     // Only proceed if we have a valid brief
     if (!formData.brief || formData.brief.trim().length < 10) {
       toast({
@@ -219,7 +219,7 @@ export default function CampaignForm() {
       });
       return;
     }
-    
+
     console.log('🚀 Form validation passed, triggering campaign creation...');
     // Manually trigger form submission
     form.handleSubmit(onSubmit)(e);
@@ -229,7 +229,7 @@ export default function CampaignForm() {
     const brief = form.watch("brief");
     const platform = selectedPlatform;
     const language = form.watch("language");
-    
+
     if (!brief || brief.trim().length < 10) {
       return {
         hook: "Start typing your product brief to see AI preview...",
@@ -241,8 +241,8 @@ export default function CampaignForm() {
     // Generate platform-specific preview
     const platformHooks = {
       tiktok: language === 'tagalog' ? `Grabe! ${brief.split(' ').slice(0, 3).join(' ')} na 'to! ✨` :
-              language === 'indonesian' ? `Wah! ${brief.split(' ').slice(0, 3).join(' ')} ini amazing! ✨` :
-              `OMG! This ${brief.split(' ').slice(0, 3).join(' ')} is incredible! ✨`,
+        language === 'indonesian' ? `Wah! ${brief.split(' ').slice(0, 3).join(' ')} ini amazing! ✨` :
+          `OMG! This ${brief.split(' ').slice(0, 3).join(' ')} is incredible! ✨`,
       instagram: `Ready to discover ${brief.split(' ').slice(0, 4).join(' ')}? 📸✨`,
       facebook: `Here's why everyone's talking about ${brief.split(' ').slice(0, 4).join(' ')}! 🔥`
     };
@@ -303,8 +303,8 @@ export default function CampaignForm() {
                           <FormItem>
                             <FormLabel>Campaign Name</FormLabel>
                             <FormControl>
-                              <Input 
-                                placeholder="e.g., Mango Soap TikTok Campaign" 
+                              <Input
+                                placeholder="e.g., Mango Soap TikTok Campaign"
                                 {...field}
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter') {
@@ -319,7 +319,7 @@ export default function CampaignForm() {
                           </FormItem>
                         )}
                       />
-                      
+
                       <FormField
                         control={form.control}
                         name="brief"
@@ -351,7 +351,7 @@ export default function CampaignForm() {
                               </div>
                             </div>
                             <FormControl>
-                              <Textarea 
+                              <Textarea
                                 placeholder="Describe your product, target audience, and campaign goals... Or click 'AI Templates' for smart suggestions!"
                                 className="h-32 resize-none"
                                 {...field}
@@ -376,7 +376,7 @@ export default function CampaignForm() {
                           <FormItem>
                             <FormLabel>Campaign Description (Optional)</FormLabel>
                             <FormControl>
-                              <Input 
+                              <Input
                                 placeholder="Brief campaign description..."
                                 {...field}
                               />
@@ -403,8 +403,8 @@ export default function CampaignForm() {
                               onClick={() => setSelectedPlatform(platform.id)}
                               className={cn(
                                 "flex flex-col items-center p-4 border-2 rounded-xl hover:bg-opacity-20 transition-all",
-                                selectedPlatform === platform.id 
-                                  ? "border-ailldoit-accent bg-ailldoit-accent/10 text-ailldoit-accent" 
+                                selectedPlatform === platform.id
+                                  ? "border-ailldoit-accent bg-ailldoit-accent/10 text-ailldoit-accent"
                                   : "border-gray-200 text-ailldoit-muted hover:border-gray-300"
                               )}
                             >
@@ -459,8 +459,8 @@ export default function CampaignForm() {
                                 onClick={() => setSelectedCampaignType(type.id)}
                                 className={cn(
                                   "flex items-center p-4 border-2 rounded-xl hover:bg-opacity-20 transition-all",
-                                  selectedCampaignType === type.id 
-                                    ? "border-ailldoit-accent bg-ailldoit-accent/10 text-ailldoit-accent" 
+                                  selectedCampaignType === type.id
+                                    ? "border-ailldoit-accent bg-ailldoit-accent/10 text-ailldoit-accent"
                                     : "border-gray-200 text-ailldoit-muted hover:border-gray-300"
                                 )}
                               >
@@ -474,7 +474,7 @@ export default function CampaignForm() {
                     </CardContent>
                   </Card>
 
-                  <Button 
+                  <Button
                     onClick={handleSubmitClick}
                     className="w-full bg-ailldoit-accent hover:bg-ailldoit-accent/90 text-white hover:shadow-lg"
                     disabled={createCampaign.isPending}
@@ -510,7 +510,7 @@ export default function CampaignForm() {
                       <Lightbulb className="w-5 h-5 mr-2" />
                       AI Preview
                     </h3>
-                  
+
                     <div className="space-y-4">
                       {preview && preview.hook !== "Start typing your product brief to see AI preview..." ? (
                         <>
@@ -523,7 +523,7 @@ export default function CampaignForm() {
                               <p className="text-sm text-muted-foreground italic">"{preview.hook}"</p>
                             </CardContent>
                           </Card>
-                          
+
                           <Card className="border-gray-200">
                             <CardContent className="p-4">
                               <div className="flex items-center space-x-2 mb-2">
@@ -532,7 +532,7 @@ export default function CampaignForm() {
                               <p className="text-sm text-muted-foreground">{preview.hashtags}</p>
                             </CardContent>
                           </Card>
-                          
+
                           <Card className="border-gray-200">
                             <CardContent className="p-4">
                               <div className="flex items-center space-x-2 mb-2">
