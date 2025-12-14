@@ -50,6 +50,7 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -69,13 +70,19 @@ app.use((req, res, next) => {
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || '8080', 10);
-  server.listen({
-    port,
-    host: "0.0.0.0",
-    reusePort: true,
-  }, () => {
-    console.log(`serving on port ${port}`);
+  server.listen(port, "0.0.0.0", () => {
+    console.log(`🚀 PRODUCTION SERVER: serving on port ${port}`);
+    console.log(`🌍 Environment: NODE_ENV=${process.env.NODE_ENV}`);
+    console.log(`📁 Working directory: ${process.cwd()}`);
+    // console.log(`📂 Static files served from: ${distPath}`);
   });
+  // server.listen({
+  //   port,
+  //   host: "0.0.0.0",
+  //   reusePort: true,
+  // }, () => {
+  //   console.log(`serving on port ${port}`);
+  // });
 })();
 
 
