@@ -61,7 +61,7 @@ steps:
     args:
       - run
       - deploy
-      - ailldoit-feature/long-video
+      - ailldoit-feature-long-video
       - --image=${_IMAGE_NAME}
       - --region=us-central1
       - --platform=managed
