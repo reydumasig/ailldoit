@@ -10,7 +10,7 @@
     "dev:client": "npx vite --force",
     "dev": "npm-run-all --parallel dev:server dev:client",
     "build:client": "vite build",
-    "build:server": "esbuild server/server-dev.ts --platform=node --packages=external --bundle --format=esm --outfile=dist/index.js",
+    "build:server": "esbuild server/server-prod.ts --platform=node --packages=external --bundle --format=esm --outfile=dist/index.js",
     "build": "npm run build:client && npm run build:server",
     "start": "NODE_ENV=production node dist/index.js",
     "build:win": "npm run build:client && npm run build:server",
