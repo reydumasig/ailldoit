@@ -61,7 +61,7 @@ steps:
     args:
       - run
       - deploy
-      - ailldoit-dev
+      - ailldoit-feature/long-video-veo-3.1
       - --image=${_IMAGE_NAME}
       - --region=us-central1
       - --platform=managed
@@ -100,7 +100,7 @@ availableSecrets:
       env: 'DOCKER_HUB_PASSWORD'
 
 substitutions:
-  _IMAGE_NAME: "us-central1-docker.pkg.dev/ailldoit-6d0e0/cloud-run-source-deploy/ailldoit-dev/ailldoit-dev:${COMMIT_SHA}"
+  _IMAGE_NAME: "us-central1-docker.pkg.dev/ailldoit-6d0e0/cloud-run-source-deploy/ailldoit-feature/long-video-veo-3.1/ailldoit-feature/long-video-veo-3.1:${COMMIT_SHA}"
 
 options:
   substitutionOption: ALLOW_LOOSE
