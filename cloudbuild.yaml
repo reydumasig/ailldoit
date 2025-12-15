@@ -100,7 +100,7 @@ availableSecrets:
       env: 'DOCKER_HUB_PASSWORD'
 
 substitutions:
-  _IMAGE_NAME: "us-central1-docker.pkg.dev/ailldoit-6d0e0/cloud-run-source-deploy/ailldoit-feature-test:${COMMIT_SHA}"
+  _IMAGE_NAME: "asia-east1-docker.pkg.dev/ailldoit-6d0e0/cloud-run-source-deploy/ailldoit-feature-test:${COMMIT_SHA}"
 
 options:
   substitutionOption: ALLOW_LOOSE
