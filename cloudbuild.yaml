@@ -63,7 +63,7 @@ steps:
       - deploy
       - ailldoit-feature-test
       - --image=${_IMAGE_NAME}
-      - --region=us-central1
+      - --region=asia-east1
       - --platform=managed
       - --quiet
     id: 'deploy'
