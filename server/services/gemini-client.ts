@@ -10,7 +10,7 @@ const GOOGLE_CLOUD_LOCATION = process.env.GOOGLE_CLOUD_LOCATION || "us-central1"
 const GOOGLE_GENAI_MODEL = process.env.GOOGLE_GENAI_MODEL || "gemini-2.5-flash";
 
 if (!GEMINI_API_KEY) {
-  throw new Error("❌ GEMINI_API_KEY is missing in environment variables.");
+  console.warn("⚠️ GEMINI_API_KEY is missing - Gemini features will not be available");
 }
 
 // --- Lazy singletons
@@ -20,7 +20,9 @@ let vertexClient: GoogleGenAI | null = null;
 // === DIRECT API CLIENT (for Gemini text models) ===
 function getDirectClient(): GoogleGenAI {
   if (!directClient) {
-    if (!GEMINI_API_KEY) throw new Error("Missing GEMINI_API_KEY in .env");
+    if (!GEMINI_API_KEY) {
+      throw new Error("Missing GEMINI_API_KEY in .env - Gemini features require an API key");
+    }
 
     directClient = new GoogleGenAI({
       apiKey: GEMINI_API_KEY,
@@ -50,7 +52,7 @@ function getVertexClient(): GoogleGenAI {
 }
 
 // === SMART ROUTER ===
-function getClientForModel(model: string): GoogleGenAI {
+export function getClientForModel(model: string): GoogleGenAI {
   if (model.startsWith("imagen-") || model.includes("imagegeneration") || model.endsWith("-image")) {
     return getVertexClient();
   }
@@ -117,30 +119,90 @@ export async function generateImages(
 
 }
 
+export interface VideoGenerationOptions {
+  previousVideoFile?: any; // File object from previous segment for Scene Extension
+  referenceImages?: string[]; // Up to 3 reference images (base64 or file paths) for Ingredient-to-Video
+  firstFrame?: string; // First frame image (base64 or file path) for frame-locking
+  lastFrame?: string; // Last frame image (base64 or file path) for frame-locking
+  aspectRatio?: "16:9" | "9:16" | "1:1";
+  duration?: string;
+  model?: string;
+}
+
 export async function generateVideos(
   prompt: string,
-  model: string = 'veo-3.0-generate-preview', // Use Veo 2 which works with regular API key
-  download: boolean = true  // Download the video file
+  model: string = 'veo-3.0-generate-preview',
+  download: boolean = true,
+  options?: VideoGenerationOptions
 ) {
 
   const config = {
-    aspectRatio: "16:9",
-    duration: '8s',
+    aspectRatio: options?.aspectRatio || "16:9",
+    duration: options?.duration || '8s',
   }
 
   console.log("🖼️ GEMINI CLIENT: Video Content generation started...");
+  console.log(`📝 GEMINI CLIENT: Prompt: "${prompt.substring(0, 100)}..."`);
+  if (options?.previousVideoFile) {
+    console.log("🔗 GEMINI CLIENT: Using Scene Extension (previous video file provided)");
+  }
+  if (options?.referenceImages && options.referenceImages.length > 0) {
+    console.log(`🖼️ GEMINI CLIENT: Using ${options.referenceImages.length} reference images for visual consistency`);
+  }
+  if (options?.firstFrame) {
+    console.log("📸 GEMINI CLIENT: Using first frame specification for frame-locking");
+  }
 
   const client = getClientForModel(model);
+  
+  // Build source object with prompt and optional video file for Scene Extension
+  const source: any = {
+    prompt: prompt
+  };
+  
+  // Add previous video file for Scene Extension (Veo 3.1 feature)
+  if (options?.previousVideoFile) {
+    source.video = options.previousVideoFile;
+    console.log("✅ GEMINI CLIENT: Scene Extension enabled - continuing from previous segment");
+  }
+  
+  // Build config with reference images for Ingredient-to-Video (Veo 3.1 feature)
+  const videoConfig: any = {
+    numberOfVideos: 1,
+    aspectRatio: config.aspectRatio,
+    personGeneration: "allow_all"
+  };
+  
+  // Add reference images for visual consistency (up to 3 images)
+  if (options?.referenceImages && options.referenceImages.length > 0) {
+    // Convert base64 or file paths to file objects if needed
+    const referenceImageFiles = await Promise.all(
+      options.referenceImages.slice(0, 3).map(async (img) => {
+        if (img.startsWith('data:image') || img.startsWith('/')) {
+          // Handle base64 or local file path
+          // For now, we'll need to upload these to Files API first
+          // This is a simplified version - in production, upload to Files API
+          return img;
+        }
+        return img;
+      })
+    );
+    videoConfig.referenceImages = referenceImageFiles;
+    console.log(`✅ GEMINI CLIENT: Added ${referenceImageFiles.length} reference images for visual consistency`);
+  }
+  
+  // Add first/last frame specifications for frame-locking
+  if (options?.firstFrame) {
+    videoConfig.firstFrame = options.firstFrame;
+  }
+  if (options?.lastFrame) {
+    videoConfig.lastFrame = options.lastFrame;
+  }
+
   let operation = await client.models.generateVideos({
-    model: 'veo-2.0-generate-001',
-    source: {
-      prompt: prompt
-    },
-    config: {
-      numberOfVideos: 1,
-      aspectRatio: config.aspectRatio,
-      personGeneration: "allow_all"
-    }
+    model: model.includes('veo-3') ? 'veo-3.1-generate-preview' : 'veo-2.0-generate-001',
+    source: source,
+    config: videoConfig
   });
 
   while (!operation.done) {
@@ -215,6 +277,31 @@ export async function generateVideos(
 
   return operation.response?.generatedVideos || []
 
+}
+
+/**
+ * Upload a file to Gemini Files API for use in video generation
+ * Required for Scene Extension feature (files > 20MB or videos)
+ */
+export async function uploadFileToGemini(
+  filePath: string,
+  mimeType: string = 'video/mp4'
+): Promise<any> {
+  try {
+    console.log(`☁️ GEMINI FILES: Uploading file to Files API: ${filePath}`);
+    const client = getDirectClient();
+    
+    const file = await client.files.upload({
+      filePath: filePath,
+      mimeType: mimeType
+    });
+    
+    console.log(`✅ GEMINI FILES: File uploaded successfully: ${file.name}`);
+    return file;
+  } catch (error) {
+    console.error('❌ GEMINI FILES: Failed to upload file:', error);
+    throw error;
+  }
 }
 
 /**

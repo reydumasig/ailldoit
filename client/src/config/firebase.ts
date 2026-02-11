@@ -21,7 +21,7 @@ const requiredFields = [
   'VITE_FIREBASE_APP_ID'
 ];
 
-console.log("Hehehhaw", import.meta.env);
+console.log("Running, ENV:", import.meta.env);
 
 const missingFields = requiredFields.filter(field => !import.meta.env[field]);
 if (missingFields.length > 0) {
