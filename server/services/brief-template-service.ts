@@ -88,11 +88,8 @@ export class BriefTemplateService {
         ]
       }`;
 
-      const result = await gemini.models.generateContent({
-        model: "gemini-2.0-flash-exp",
-        contents: prompt,
-      });
-      const response = result.response.text();
+      const result = await generateGeminiContent(prompt, "gemini-2.0-flash-exp");
+      const response = result.response.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
       
       const parsed = JSON.parse(response);
       return parsed.topics || [];
@@ -220,12 +217,11 @@ export class BriefTemplateService {
               title: parsed.title || "Generated Template",
               prompt: parsed.prompt || "",
               tags: parsed.tags || [],
+              platforms: parsed.platforms || [],
               tone: parsed.tone || "engaging",
+              languagesSupported: parsed.languagesSupported || ["en"],
+              relevanceScore: parsed.relevanceScore ?? 0,
               category: parsed.category || "general",
-              usageCount: 0,
-              rating: 0,
-              createdAt: new Date(),
-              updatedAt: new Date()
             };
           }
         } catch (geminiError) {

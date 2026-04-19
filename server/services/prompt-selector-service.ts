@@ -340,8 +340,6 @@ Return JSON format:
               difficulty: 'intermediate' as const,
               usageCount: 0,
               rating: 0,
-              createdAt: new Date(),
-              updatedAt: new Date()
             };
           }
         } catch (geminiError) {

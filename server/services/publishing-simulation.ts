@@ -40,7 +40,7 @@ export class PublishingSimulationService {
         postId: simulationData.id,
         scheduledFor: created.scheduledFor,
         publishedAt: created.publishedAt,
-        previewUrl: this.generatePreviewUrl(platform, simulationData.id),
+        previewUrl: this.generatePreviewUrl(platform, simulationData.id ?? ''),
       });
     }
 

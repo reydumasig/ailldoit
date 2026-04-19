@@ -1,6 +1,6 @@
-import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-import { getStorage } from 'firebase/storage';
+import { initializeApp, type FirebaseApp } from 'firebase/app';
+import { getAuth, type Auth } from 'firebase/auth';
+import { getStorage, type FirebaseStorage } from 'firebase/storage';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -20,8 +20,6 @@ const requiredFields = [
   'VITE_FIREBASE_MESSAGING_SENDER_ID',
   'VITE_FIREBASE_APP_ID'
 ];
-
-console.log("Hehehhaw", import.meta.env);
 
 const missingFields = requiredFields.filter(field => !import.meta.env[field]);
 if (missingFields.length > 0) {
@@ -58,7 +56,9 @@ if (missingFields.length > 0) {
   console.log('✅ Firebase configuration loaded successfully');
 }
 
-let app, auth, storage;
+let app: FirebaseApp;
+let auth: Auth;
+let storage: FirebaseStorage;
 
 try {
   console.log('🔥 Initializing Firebase app...');

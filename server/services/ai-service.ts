@@ -532,6 +532,26 @@ export class AIService {
     }
   }
 
+  // Generate Real Estate HDR Edits (AutoHDR MVP)
+  async generateRealEstateEdit(brief: string, sourceImageUrls: string[]): Promise<string[]> {
+    console.log(`📸 Starting AutoHDR Real Estate MVP Generation`);
+    console.log(`📸 Source Images Provided: ${sourceImageUrls.length}`);
+    console.log(`📸 Brief: ${brief}`);
+    
+    // For the MVP, we use the text-to-image generateAdImages pipeline with a highly specialized prompt
+    // to simulate the "enhanced" result of the bracketed photos.
+    // In production, this would pipe the sourceImageUrls into a specialized Replicate ControlNet/Image-to-Image model.
+    const enhancedPrompt = `Professional architectural photography, High Dynamic Range (HDR) real estate interior/exterior, perfectly balanced lighting, crystal clear window pulls showing blue sky, vibrant colors, wide angle lens, luxurious feel. Content details: ${brief}`;
+    
+    try {
+      const generatedImages = await this.generateAdImages(enhancedPrompt);
+      return generatedImages;
+    } catch (error) {
+      console.error('AutoHDR MVP generation failed:', error);
+      throw new Error('Failed to generate HDR enhanced image');
+    }
+  }
+
   // Generate videos using Google's Veo 2 (available with regular Gemini API key)
   async generateAdVideosVeo(description: string, style: string = "modern advertising"): Promise<string[]> {
     if (!process.env.GEMINI_API_KEY) {
@@ -694,22 +714,34 @@ Format as JSON with keys: hook, caption, hashtags, videoScript
     }
   }
 
-  // Generate longer videos by stitching multiple clips together
+  // Generate longer videos by stitching multiple clips together with frame-to-frame continuity
   async generateLongAdVideos(
     description: string, 
     targetDuration: number = 15,
     style: string = "modern advertising",
     platform: string = "general"
   ): Promise<string[]> {
-    console.log(`🎬 Starting long video generation for: "${description}"`);
+    console.log(`🎬 Starting long video generation with frame-to-frame continuity`);
+    console.log(`📝 Description: "${description.substring(0, 100)}..."`);
     console.log(`🎯 Target duration: ${targetDuration}s`);
     console.log(`📝 Style: ${style}, Platform: ${platform}`);
     
+    // Validate target duration
+    if (targetDuration < 8) {
+      console.warn(`⚠️ Target duration ${targetDuration}s is less than 8s, using single video generation`);
+      return await this.generateAdVideos(description, style);
+    }
+    
+    // Calculate actual duration (rounded up to nearest 8 seconds)
+    const segmentCount = Math.ceil(targetDuration / 8);
+    const actualDuration = segmentCount * 8;
+    console.log(`📊 Will generate ${segmentCount} segments of 8 seconds each (total: ${actualDuration}s)`);
+    
     try {
-      // Generate multiple video clips for stitching
+      // Generate multiple video clips with frame-to-frame continuity
       const clips = await videoProcessingService.generateVideoClipsForStitching(
         description,
-        targetDuration,
+        actualDuration, // Use calculated duration
         platform
       );
       
@@ -721,25 +753,38 @@ Format as JSON with keys: hook, caption, hashtags, videoScript
       
       // Configure stitching options
       const stitchingOptions: VideoStitchingOptions = {
-        targetDuration,
-        transitionDuration: 0.5,
+        targetDuration: actualDuration,
+        transitionDuration: 0.3, // Shorter transitions for smoother continuity
         outputFormat: 'mp4',
         quality: 'high',
-        addFadeTransitions: true,
+        addFadeTransitions: true, // Smooth transitions between segments
         addBackgroundMusic: false
       };
       
       // Stitch the videos together
-      console.log(`🔗 Stitching ${clips.length} clips into ${targetDuration}s video...`);
+      console.log(`🔗 Stitching ${clips.length} clips into ${actualDuration}s video with frame-to-frame continuity...`);
       const stitchedVideoUrl = await videoProcessingService.stitchVideos(clips, stitchingOptions);
       
       console.log(`✅ Long video generation completed: ${stitchedVideoUrl}`);
+      console.log(`📏 Final video duration: ${actualDuration}s (${segmentCount} segments × 8s each)`);
       return [stitchedVideoUrl];
       
     } catch (error: any) {
       console.error('❌ Long video generation failed:', error);
       
-      // Fallback to single video generation
+      const errorMessage = error?.message || JSON.stringify(error);
+      const isQuotaError = errorMessage.includes('quota') || 
+                          errorMessage.includes('429') || 
+                          errorMessage.includes('RESOURCE_EXHAUSTED') ||
+                          errorMessage.includes('rate-limit');
+      
+      // Don't fallback if it's a quota error - show clear error message
+      if (isQuotaError) {
+        console.error('💳 Long video generation failed due to API quota exceeded');
+        throw new Error(`API quota exceeded. Cannot generate long video. Please check your Gemini API quota and billing settings at https://ai.dev/usage?tab=rate-limit. Error: ${errorMessage}`);
+      }
+      
+      // Fallback to single video generation only for non-quota errors
       console.log('🔄 Falling back to single video generation...');
       try {
         return await this.generateAdVideos(description, style);

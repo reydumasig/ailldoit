@@ -3,7 +3,7 @@ import { storage } from '../storage';
 import { ENV } from '../config/environment';
 
 const stripe = new Stripe(ENV.stripe.secretKey, {
-  apiVersion: '2025-06-30.basil',
+  apiVersion: '2025-08-27.basil',
 });
 
 export interface SubscriptionPlan {

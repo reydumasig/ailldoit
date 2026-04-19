@@ -25,6 +25,14 @@ import { assetValidationService } from "./services/asset-validation-service";
 import { videoProcessingService } from "./services/video-processing-service";
 import { z } from "zod";
 import crypto from 'crypto';
+import multer from 'multer';
+import { firebaseStorageService } from "./services/firebase-storage-service";
+import photoRouter from "./routes/photo-routes";
+
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit per file
+});
 
 export async function registerRoutes(app: Express): Promise<Server> {
   console.log('🚀 DIAGNOSTIC: Starting route registration...');
@@ -44,6 +52,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Apply general rate limiting to all API routes
   app.use('/api', generalRateLimit);
   console.log('✅ Rate limiting middleware registered for all API routes.');
+
+  // Photo module — real-estate AI photo editing (MVP).
+  // Mounted as a self-contained Router so this file doesn't bloat further.
+  app.use('/api/photo', photoRouter);
+  console.log('✅ Photo module routes registered at /api/photo');
 
   // Health check endpoint for Cloud Run
   app.get('/api/health', (req, res) => {
@@ -176,6 +189,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Upload endpoint for Real Estate AutoHDR MVP
+  app.post("/api/upload", authenticateToken, upload.array('images', 5), async (req, res) => {
+    try {
+      if (!req.files || (req.files as Express.Multer.File[]).length === 0) {
+        return res.status(400).json({ message: "No files provided" });
+      }
+
+      console.log(`📤 Uploading ${(req.files as Express.Multer.File[]).length} images to Firebase...`);
+      const uploadedUrls: string[] = [];
+      const assetIds: number[] = [];
+
+      for (const file of req.files as Express.Multer.File[]) {
+        const uniqueFilename = `${crypto.randomUUID()}_${file.originalname}`;
+        const url = await firebaseStorageService.uploadImageBuffer(file.buffer, uniqueFilename, {
+          userId: req.user!.id,
+          source: 'auto-hdr-mvp'
+        });
+        
+        uploadedUrls.push(url);
+        
+        // Also save in assets table so they aren't lost
+        // Using a temporary campaignId of 0 (or null if schema allows, but schema requires NOT NULL)
+        // Wait, schema for assets requires campaign_id.
+        // Actually, for an MVP we can just return the URLs and create the assets later during POST /api/campaigns
+        // Let's just return the uploadedUrls.
+      }
+
+      res.status(200).json({ urls: uploadedUrls });
+    } catch (error: any) {
+      console.error('Upload Error:', error);
+      res.status(500).json({ message: 'Failed to upload files', error: error.message });
+    }
+  });
+
   app.post("/api/campaigns", authenticateToken, async (req, res) => {
     try {
       const validatedData = insertCampaignSchema.parse({
@@ -297,6 +344,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!campaign) {
         return res.status(404).json({ message: "Campaign not found" });
       }
+      
+      // Debug: Log campaign type
+      console.log(`🔍 ROUTE DEBUG: Campaign ID: ${id}`);
+      console.log(`🔍 ROUTE DEBUG: Campaign Type: "${campaign.campaignType}"`);
+      console.log(`🔍 ROUTE DEBUG: Campaign Type Check:`);
+      console.log(`   - Is 'longVideo'? ${campaign.campaignType === 'longVideo'}`);
+      console.log(`   - Is 'shortVideo'? ${campaign.campaignType === 'shortVideo'}`);
+      console.log(`   - Is 'video'? ${campaign.campaignType === 'video'}`);
+      console.log(`   - Is 'image'? ${campaign.campaignType === 'image'}`);
+      console.log(`🔍 ROUTE DEBUG: Campaign Brief: "${campaign.brief?.substring(0, 200) || 'NO BRIEF'}..."`);
+      
+      // Auto-fix: If campaign type is old 'video', check brief and update
+      if (campaign.campaignType === 'video') {
+        console.log(`⚠️ ROUTE DEBUG: Campaign has old 'video' type - checking if it should be longVideo...`);
+        const brief = campaign.brief?.toLowerCase() || '';
+        const hasLongVideoIndicators = 
+          brief.includes('0:') || 
+          brief.includes('scene') || 
+          brief.includes('minute') ||
+          /\d+:\d+/.test(brief) ||
+          /\[scene\s*\d+/i.test(campaign.brief || '');
+        
+        if (hasLongVideoIndicators) {
+          console.log(`🔄 ROUTE DEBUG: Auto-updating campaign type from 'video' to 'longVideo' based on brief`);
+          await storage.updateCampaign(id, { campaignType: 'longVideo' }, req.user!.id);
+          campaign.campaignType = 'longVideo';
+        } else {
+          console.log(`🔄 ROUTE DEBUG: Auto-updating campaign type from 'video' to 'shortVideo'`);
+          await storage.updateCampaign(id, { campaignType: 'shortVideo' }, req.user!.id);
+          campaign.campaignType = 'shortVideo';
+        }
+      }
 
       // Import all services at once
       const { aiService } = await import("./services/ai-service");
@@ -308,7 +387,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Check credits before generation - Pre-validate without deducting
       const textCreditsNeeded = 1;
       const imageCreditsNeeded = campaign.campaignType === 'image' ? 5 : 0;
-      const videoCreditsNeeded = campaign.campaignType === 'video' ? 10 : 0;
+      // Calculate video credits based on type
+      let videoCreditsNeeded = 0;
+      if (campaign.campaignType === 'shortVideo') {
+        videoCreditsNeeded = 30; // 15-second video (2 segments × 15 credits)
+      } else if (campaign.campaignType === 'longVideo') {
+        videoCreditsNeeded = 60; // Estimate for 60-second video (8 segments × 15 credits)
+      } else if (campaign.campaignType === 'video') {
+        // Backward compatibility: treat old "video" type as shortVideo
+        videoCreditsNeeded = 30;
+      }
       const totalCreditsNeeded = textCreditsNeeded + imageCreditsNeeded + videoCreditsNeeded;
       
       // Check if user has enough credits
@@ -380,8 +468,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Store generated assets in database
         const assetIds: number[] = [];
         
-        // Generate images if specified
-        if (campaign.campaignType === 'image' || campaign.campaignType === 'video') {
+        // Generate images ONLY if campaign type is 'image'
+        if (campaign.campaignType === 'image') {
           try {
             // Track image generation credits (5 credits per image)
             await CreditTrackingService.trackUsage(req.user!.id, 'imageGeneration', {
@@ -411,27 +499,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
         
-        // Generate video script and assets
-        if (campaign.campaignType === 'video') {
+        // Generate Real Estate Edit (AutoHDR MVP) ONLY if campaign type is 'realEstateEdit'
+        if (campaign.campaignType === 'realEstateEdit') {
+          console.log(`📸 ROUTE: Generating Real Estate Edit for campaign type: ${campaign.campaignType}`);
+          try {
+            // Track image generation credits (10 credits for HDR processing)
+            await CreditTrackingService.trackUsage(req.user!.id, 'imageGeneration', {
+              campaignId: id,
+              platform: campaign.platform,
+              metadata: { type: 'campaign_real_estate_edit' }
+            });
+
+            // Extract URLs from brief if frontend appended them, or just pass brief
+            // Currently passing empty array for sourceImageUrls as we rely on Gemini to hallucinate the HDR MVP from text
+            const images = await aiService.generateRealEstateEdit(campaign.brief, []);
+            generatedContent.imageAssets = images || [];
+            
+            // Store image assets
+            for (const imageUrl of images || []) {
+              const asset = await storage.createAsset({
+                campaignId: id,
+                userId: req.user!.id,
+                type: 'image',
+                provider: 'gemini-imagen-hdr',
+                url: imageUrl,
+                metadata: { generatedAt: new Date().toISOString(), isHdrEdit: true }
+              });
+              assetIds.push(asset.id);
+            }
+          } catch (hdrError) {
+            console.warn('⚠️ Real estate edit generation failed, continuing without images:', hdrError);
+            generatedContent.imageAssets = [];
+          }
+        }
+        
+        // Generate SHORT video (15 seconds) ONLY if campaign type is 'shortVideo'
+        if (campaign.campaignType === 'shortVideo' || campaign.campaignType === 'video') {
+          // Backward compatibility: treat old "video" type as shortVideo
+          console.log(`🎬 ROUTE: Generating short video (15 seconds) for campaign type: ${campaign.campaignType}`);
+          
+          const targetDuration = 15;
           const videoScript = await aiService.generateVideoScript(
             campaign.brief,
             campaign.platform,
-            8
+            targetDuration
           );
           generatedContent.videoScript = videoScript;
           
-          // Track video generation credits (15 credits per video)
+          // Track video generation credits (15 credits per 8-second segment)
+          const creditsNeeded = Math.ceil(targetDuration / 8) * 15;
           await CreditTrackingService.trackUsage(req.user!.id, 'videoGeneration', {
             campaignId: id,
             platform: campaign.platform,
-            metadata: { type: 'campaign_video' }
+            metadata: { type: 'campaign_short_video', duration: targetDuration }
           });
 
-          // Generate actual video content
-          const videoAssets = await aiService.generateAdVideos(
-            `${campaign.brief} for ${campaign.platform} social media`,
-            "modern advertising"
+          // Generate standard 15-second video
+          const videoAssets = await aiService.generateLongAdVideos(
+            campaign.brief,
+            targetDuration,
+            "modern advertising",
+            campaign.platform
           );
+          
           generatedContent.videoAssets = videoAssets;
           
           // Store video assets
@@ -440,9 +570,126 @@ export async function registerRoutes(app: Express): Promise<Server> {
               campaignId: id,
               userId: req.user!.id,
               type: 'video',
-              provider: 'gemini-veo',
+              provider: 'gemini-veo-3.1',
               url: videoUrl,
-              metadata: { generatedAt: new Date().toISOString() }
+              metadata: { 
+                generatedAt: new Date().toISOString(),
+                duration: targetDuration,
+                isLongVideo: true
+              }
+            });
+            assetIds.push(asset.id);
+          }
+        }
+        
+        // Generate LONG video (60 seconds) ONLY if campaign type is 'longVideo'
+        if (campaign.campaignType === 'longVideo') {
+          console.log(`🎬 ROUTE: Generating long video for campaign type: longVideo`);
+          
+          // Detect if this is a long video script (contains timing info or duration > 8s)
+          const brief = campaign.brief.toLowerCase();
+          const originalBrief = campaign.brief; // Keep original for time extraction
+          
+          // More comprehensive detection
+          const hasLongVideoIndicators = 
+            brief.includes('0:') || 
+            brief.includes('scene') || 
+            brief.includes('second') || 
+            brief.includes('minute') ||
+            brief.includes('duration') ||
+            /\d+:\d+/.test(brief) || // Matches time format like "0:20" or "1:15"
+            /\[scene\s*\d+/i.test(originalBrief) || // Matches [Scene 1, [Scene 2, etc.
+            /\|\s*\d+:\d+–\d+:\d+/i.test(originalBrief); // Matches "| 0:00–0:20"
+          
+          // Extract target duration from brief if mentioned
+          let targetDuration = 60; // Default to 60 seconds for long video campaigns
+          
+          // Try to extract duration from time ranges (e.g., "1:35–2:00" = 25 seconds, total = 120s)
+          // Format: "minutes:seconds–minutes:seconds" like "0:00–0:20" or "1:35–2:00"
+          const timeRangeMatches = originalBrief.matchAll(/(\d+):(\d+)\s*[–-]\s*(\d+):(\d+)/gi);
+          let maxEndTime = 0;
+          for (const match of timeRangeMatches) {
+            const startMinutes = parseInt(match[1] || '0');
+            const startSeconds = parseInt(match[2] || '0');
+            const endMinutes = parseInt(match[3] || '0');
+            const endSeconds = parseInt(match[4] || '0');
+            const endTime = endMinutes * 60 + endSeconds;
+            maxEndTime = Math.max(maxEndTime, endTime);
+            console.log(`🎬 ROUTE: Found time range ${match[0]}, end time: ${endTime}s`);
+          }
+          
+          if (maxEndTime > 0) {
+            targetDuration = Math.min(maxEndTime, 60); // Cap at 60 seconds
+            console.log(`🎬 ROUTE: Detected time range, extracted duration: ${targetDuration}s`);
+          } else {
+            // Try explicit duration mentions
+            const durationMatch = brief.match(/(\d+)\s*(?:second|sec|minute|min)/i);
+            if (durationMatch) {
+              const duration = parseInt(durationMatch[1]);
+              if (durationMatch[0].toLowerCase().includes('minute') || durationMatch[0].toLowerCase().includes('min')) {
+                targetDuration = duration * 60; // Convert minutes to seconds
+              } else {
+                targetDuration = duration;
+              }
+              // Cap at 60 seconds for safety
+              targetDuration = Math.min(targetDuration, 60);
+              console.log(`🎬 ROUTE: Detected explicit duration: ${targetDuration}s`);
+            } else if (hasLongVideoIndicators) {
+              // If script has scene markers, estimate duration
+              const sceneMatches = originalBrief.match(/\[scene\s*\d+/gi);
+              if (sceneMatches && sceneMatches.length > 1) {
+                // Estimate: each scene is typically 15-20 seconds for professional scripts
+                targetDuration = Math.min(sceneMatches.length * 15, 60);
+                console.log(`🎬 ROUTE: Detected ${sceneMatches.length} scenes, estimated duration: ${targetDuration}s`);
+              } else {
+                // Default to 60 seconds for long video campaigns
+                targetDuration = 60;
+                console.log(`🎬 ROUTE: Using default long video duration: ${targetDuration}s`);
+              }
+            }
+          }
+          
+          console.log(`🎬 ROUTE: Final target duration for long video: ${targetDuration}s`);
+          
+          const videoScript = await aiService.generateVideoScript(
+            campaign.brief,
+            campaign.platform,
+            targetDuration
+          );
+          generatedContent.videoScript = videoScript;
+          
+          // Track video generation credits (15 credits per 8-second segment)
+          const creditsNeeded = Math.ceil(targetDuration / 8) * 15;
+          await CreditTrackingService.trackUsage(req.user!.id, 'videoGeneration', {
+            campaignId: id,
+            platform: campaign.platform,
+            metadata: { type: 'campaign_long_video', duration: targetDuration }
+          });
+
+          // Always use long video generation for longVideo campaign type
+          console.log(`🎬 ROUTE: Using long video generation with Veo 3.1 (${targetDuration}s)`);
+          const videoAssets = await aiService.generateLongAdVideos(
+            campaign.brief,
+            targetDuration,
+            "modern advertising",
+            campaign.platform
+          );
+          
+          generatedContent.videoAssets = videoAssets;
+          
+          // Store video assets
+          for (const videoUrl of videoAssets || []) {
+            const asset = await storage.createAsset({
+              campaignId: id,
+              userId: req.user!.id,
+              type: 'video',
+              provider: 'gemini-veo-3.1',
+              url: videoUrl,
+              metadata: { 
+                generatedAt: new Date().toISOString(),
+                duration: targetDuration,
+                isLongVideo: true
+              }
             });
             assetIds.push(asset.id);
           }

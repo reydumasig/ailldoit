@@ -14,9 +14,13 @@ ARG VITE_STRIPE_PUBLIC_KEY
 ARG VITE_STRIPE_STARTER_PRICE_ID
 ARG VITE_STRIPE_GROWTH_PRICE_ID
 
-# Copy package files and install all dependencies for the build
+# Copy package files and install all dependencies for the build.
+# Use `npm ci` so the platform-specific rollup/esbuild optional deps resolve
+# correctly for whatever architecture Docker is targeting (linux/amd64 in Cloud
+# Build, linux/arm64 when a dev builds locally on Apple Silicon). Previously we
+# force-installed @rollup/rollup-linux-x64-musl, which broke arm64 builds.
 COPY package.json package-lock.json ./
-RUN npm install --force && npm install @rollup/rollup-linux-x64-musl --save-dev
+RUN npm ci --no-audit --no-fund
 
 # Copy the rest of the application source code
 COPY . .
@@ -71,7 +75,7 @@ RUN apk add --no-cache ffmpeg
 # Install only production dependencies
 # We copy package files again and run install to ensure a clean production environment
 COPY package.json package-lock.json ./
-RUN npm install --omit=dev --force
+RUN npm ci --omit=dev --no-audit --no-fund
 
 # Copy the built application from the builder stage
 COPY --from=builder /app/dist ./dist

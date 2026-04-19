@@ -237,38 +237,63 @@ export class OAuthService {
     return connections[0] || null;
   }
 
-  // Refresh access token if needed
+  // Normalised token shape used internally after any refresh / exchange.
+  // Provider responses (snake_case) are mapped into this before being returned
+  // so that refreshTokenIfNeeded can persist them uniformly.
+  private normaliseTokenResponse(raw: any): { accessToken: string; refreshToken?: string; expiresIn?: number } {
+    return {
+      accessToken: raw.access_token ?? raw.accessToken,
+      refreshToken: raw.refresh_token ?? raw.refreshToken ?? undefined,
+      expiresIn: raw.expires_in ?? raw.expiresIn ?? undefined,
+    };
+  }
+
+  // Refresh access token if it has expired (or is about to — we use a 60s
+  // skew so in-flight requests don't race an expiry).
   async refreshTokenIfNeeded(connection: OAuthConnection): Promise<OAuthConnection> {
-    if (!connection.expiresAt || connection.expiresAt > new Date()) {
+    const SKEW_MS = 60_000;
+    if (!connection.expiresAt || connection.expiresAt.getTime() - SKEW_MS > Date.now()) {
       return connection; // Token is still valid
     }
 
-    if (!connection.refreshToken) {
-      throw new Error('No refresh token available for this connection');
+    // Meta's "refresh" is actually a long-lived-token exchange using the
+    // current access token, not a refresh_token grant.
+    const tokenSource = connection.platform === 'meta' || connection.platform === 'facebook' || connection.platform === 'instagram'
+      ? connection.accessToken
+      : connection.refreshToken;
+
+    if (!tokenSource) {
+      throw new Error(`No token available to refresh ${connection.platform} connection`);
     }
 
     // Refresh token based on platform
-    let tokenData;
+    let tokenData: { accessToken: string; refreshToken?: string; expiresIn?: number };
     switch (connection.platform) {
       case 'meta':
-        tokenData = await this.refreshMetaToken(connection.refreshToken);
+      case 'facebook':
+      case 'instagram':
+        tokenData = await this.refreshMetaToken(tokenSource, connection);
         break;
       case 'tiktok':
-        tokenData = await this.refreshTikTokToken(connection.refreshToken);
+        tokenData = await this.refreshTikTokToken(tokenSource);
         break;
       case 'youtube':
-        tokenData = await this.refreshYouTubeToken(connection.refreshToken);
+        tokenData = await this.refreshYouTubeToken(tokenSource);
         break;
       default:
         throw new Error(`Token refresh not implemented for platform: ${connection.platform}`);
+    }
+
+    if (!tokenData.accessToken) {
+      throw new Error(`${connection.platform} refresh succeeded but returned no access token`);
     }
 
     // Update the connection with new tokens
     const [updated] = await db.update(oauthConnections)
       .set({
         accessToken: tokenData.accessToken,
-        refreshToken: tokenData.refreshToken || connection.refreshToken,
-        expiresAt: tokenData.expiresIn 
+        refreshToken: tokenData.refreshToken ?? connection.refreshToken,
+        expiresAt: tokenData.expiresIn
           ? new Date(Date.now() + tokenData.expiresIn * 1000)
           : connection.expiresAt,
         updatedAt: new Date(),
@@ -279,30 +304,50 @@ export class OAuthService {
     return updated;
   }
 
-  // Platform-specific token refresh methods
-  private async refreshMetaToken(refreshToken: string): Promise<any> {
-    const response = await axios.post('https://graph.facebook.com/v18.0/oauth/access_token', {
-      grant_type: 'refresh_token',
-      refresh_token: refreshToken,
-      client_id: process.env.META_APP_ID,
-      client_secret: process.env.META_APP_SECRET,
+  // Platform-specific token refresh methods.
+  //
+  // Meta does NOT implement OAuth2 refresh_token grants. Instead, long-lived
+  // tokens are obtained by exchanging a (still-valid) access token with
+  // grant_type=fb_exchange_token. This extends the token's lifetime to ~60d.
+  // If the stored access token has already expired, the user must re-auth.
+  private async refreshMetaToken(currentAccessToken: string, connection: OAuthConnection): Promise<{ accessToken: string; refreshToken?: string; expiresIn?: number }> {
+    // Pick the right app credentials based on which flow created the connection.
+    const platformData = (connection.platformData as any) || {};
+    const usedPublishing = platformData.flowType === 'publishing'
+      || (platformData.grantedPermissions as string[] | undefined)?.some((s) => s.startsWith('pages_') || s.startsWith('instagram_'));
+    const clientId = usedPublishing ? process.env.META_PUBLISHING_APP_ID : process.env.META_APP_ID;
+    const clientSecret = usedPublishing ? process.env.META_PUBLISHING_APP_SECRET : process.env.META_APP_SECRET;
+
+    const response = await axios.get('https://graph.facebook.com/v18.0/oauth/access_token', {
+      params: {
+        grant_type: 'fb_exchange_token',
+        client_id: clientId,
+        client_secret: clientSecret,
+        fb_exchange_token: currentAccessToken,
+      },
     });
 
-    return response.data;
+    return this.normaliseTokenResponse(response.data);
   }
 
-  private async refreshTikTokToken(refreshToken: string): Promise<any> {
-    const response = await axios.post('https://open-api.tiktok.com/oauth/refresh_token/', {
+  // TikTok v1 endpoints were sunset; v2 uses form-encoded bodies at a new host.
+  private async refreshTikTokToken(refreshToken: string): Promise<{ accessToken: string; refreshToken?: string; expiresIn?: number }> {
+    const body = new URLSearchParams({
+      client_key: process.env.TIKTOK_CLIENT_KEY || '',
+      client_secret: process.env.TIKTOK_CLIENT_SECRET || '',
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
-      client_key: process.env.TIKTOK_CLIENT_KEY,
-      client_secret: process.env.TIKTOK_CLIENT_SECRET,
     });
 
-    return response.data.data;
+    const response = await axios.post('https://open.tiktokapis.com/v2/oauth/token/', body, {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    });
+
+    // v2 returns the token data at the top level, not nested under `.data`.
+    return this.normaliseTokenResponse(response.data);
   }
 
-  private async refreshYouTubeToken(refreshToken: string): Promise<any> {
+  private async refreshYouTubeToken(refreshToken: string): Promise<{ accessToken: string; refreshToken?: string; expiresIn?: number }> {
     const response = await axios.post('https://oauth2.googleapis.com/token', {
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
@@ -310,7 +355,10 @@ export class OAuthService {
       client_secret: process.env.YOUTUBE_CLIENT_SECRET,
     });
 
-    return response.data;
+    // Google only returns a new refresh_token on the *first* consent — for
+    // subsequent refreshes, only access_token/expires_in come back. That's
+    // why we fall back to connection.refreshToken in refreshTokenIfNeeded.
+    return this.normaliseTokenResponse(response.data);
   }
 
   // Disconnect a platform

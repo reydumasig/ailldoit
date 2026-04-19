@@ -10,17 +10,17 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { insertCampaignSchema } from "@shared/schema";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, getAuthHeaders } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
-import { ArrowLeft, Wand2, Video, Image as ImageIcon, Lightbulb, Sparkles } from "lucide-react";
+import { ArrowLeft, Wand2, Video, Image as ImageIcon, Lightbulb, Sparkles, Film } from "lucide-react";
 import BriefTemplateSelector from "@/components/BriefTemplateSelector";
 import PromptSelectorTool from "@/components/PromptSelectorTool";
 import { LinkedPromptSuggestions } from "@/components/LinkedPromptSuggestions";
-import { 
-  SiTiktok, 
-  SiInstagram, 
-  SiFacebook 
+import {
+  SiTiktok,
+  SiInstagram,
+  SiFacebook
 } from "react-icons/si";
 import { cn } from "@/lib/utils";
 
@@ -40,8 +40,10 @@ const languages = [
 ];
 
 const campaignTypes = [
-  { id: "video", name: "Video Content", icon: Video },
-  { id: "image", name: "Image Content", icon: ImageIcon },
+  { id: "shortVideo", name: "Short Video", icon: Video },
+  { id: "longVideo", name: "Long Video", icon: Film },
+  { id: "image", name: "Image", icon: ImageIcon },
+  { id: "realEstateEdit", name: "Real Estate HDR", icon: Wand2 },
 ];
 
 export default function CampaignForm() {
@@ -49,7 +51,9 @@ export default function CampaignForm() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [selectedPlatform, setSelectedPlatform] = useState("tiktok");
-  const [selectedCampaignType, setSelectedCampaignType] = useState("video");
+  const [selectedCampaignType, setSelectedCampaignType] = useState("shortVideo");
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
   const [showTemplateSelector, setShowTemplateSelector] = useState(false);
   const [showPromptSelector, setShowPromptSelector] = useState(false);
 
@@ -74,7 +78,7 @@ export default function CampaignForm() {
       description: "",
       language: "english",
       platform: "tiktok",
-      campaignType: "video",
+      campaignType: "shortVideo",
       status: "draft",
       generatedContent: null,
       variants: null,
@@ -93,7 +97,7 @@ export default function CampaignForm() {
         description: (existingCampaign as any).description || "",
         language: (existingCampaign as any).language || "english",
         platform: (existingCampaign as any).platform || "tiktok",
-        campaignType: (existingCampaign as any).campaignType || "video",
+        campaignType: (existingCampaign as any).campaignType || "shortVideo",
         status: (existingCampaign as any).status || "draft",
         // Don't load large fields that cause payload issues
         generatedContent: null,
@@ -101,7 +105,9 @@ export default function CampaignForm() {
         publishingSettings: null,
       });
       setSelectedPlatform((existingCampaign as any).platform || "tiktok");
-      setSelectedCampaignType((existingCampaign as any).campaignType || "video");
+      const existingType = (existingCampaign as any).campaignType;
+      // Map old "video" type to "shortVideo" for backward compatibility
+      setSelectedCampaignType(existingType === "video" ? "shortVideo" : (existingType || "shortVideo"));
     }
   }, [existingCampaign, isEditing, form]);
 
@@ -124,17 +130,17 @@ export default function CampaignForm() {
     onSuccess: (campaign) => {
       console.log(`🎉 Campaign ${isEditing ? 'updated' : 'created'} successfully:`, campaign);
       console.log('🆔 Campaign ID:', campaign.id);
-      
+
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
       if (isEditing) {
         queryClient.invalidateQueries({ queryKey: ["/api/campaigns", editCampaignId] });
       }
-      
+
       toast({
         title: `Campaign ${isEditing ? 'updated' : 'created'} successfully`,
         description: `Your campaign has been ${isEditing ? 'updated' : 'created'} and is ready for content generation.`,
       });
-      
+
       // Navigate to generation page with the campaign ID
       const campaignId = isEditing ? editCampaignId : campaign.id;
       if (campaignId) {
@@ -180,7 +186,7 @@ export default function CampaignForm() {
     console.log('🚀 Form submitted with data:', data);
     console.log('📊 Form state:', form.formState);
     console.log('🚨 Form errors:', form.formState.errors);
-    
+
     // Clean up the data to avoid large payloads - only send essential fields
     const campaignData = {
       name: data.name || `${selectedPlatform} Campaign`,
@@ -192,41 +198,87 @@ export default function CampaignForm() {
       status: data.status || "draft",
       // Don't send heavy data like generatedContent, variants, etc. in updates
     };
-    
+
     console.log('📤 Sending optimized campaign data:', campaignData);
     console.log('📊 Payload size estimate:', JSON.stringify(campaignData).length, 'characters');
     createCampaign.mutate(campaignData);
   };
 
-  const handleSubmitClick = (e: React.MouseEvent) => {
+  const handleSubmitClick = async (e: React.MouseEvent) => {
     console.log('🖱️ CREATE CAMPAIGN BUTTON CLICKED - This should be the ONLY trigger for campaign creation');
     e.preventDefault();
-    
+
     // Check form validity
     const formData = form.getValues();
-    console.log('📋 Current form values:', formData);
-    console.log('🔍 Form errors:', form.formState.errors);
     
-    // Only proceed if we have a valid brief
-    if (!formData.brief || formData.brief.trim().length < 10) {
-      toast({
-        title: "Brief Required",
-        description: "Please enter a product brief of at least 10 characters",
-        variant: "destructive",
-      });
-      return;
+    if (selectedCampaignType === 'realEstateEdit') {
+      if (selectedFiles.length === 0) {
+        toast({
+          title: "Images Required",
+          description: "Please upload at least one property image.",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      setIsUploading(true);
+      try {
+        const uploadData = new FormData();
+        selectedFiles.forEach(file => {
+          uploadData.append('images', file);
+        });
+
+        const authHeaders = await getAuthHeaders();
+        const uploadRes = await fetch('/api/upload', {
+          method: 'POST',
+          headers: authHeaders, // Don't set Content-Type, browser will set it to multipart/form-data with boundary
+          body: uploadData
+        });
+
+        if (!uploadRes.ok) {
+          throw new Error('Failed to upload source images');
+        }
+
+        const data = await uploadRes.json();
+        
+        // Temporarily encode source images directly into the beginning of the brief
+        const encodedSources = data.urls ? `\n\n[SOURCE_ASSETS: ${data.urls.join(',')}]` : '';
+        formData.brief = (formData.brief || 'Real Estate Property HDR Enhancement') + encodedSources;
+        
+      } catch (error) {
+        console.error('File Upload Error:', error);
+        toast({
+          title: "Upload Failed",
+          description: "Could not upload images to server.",
+          variant: "destructive",
+        });
+        setIsUploading(false);
+        return;
+      }
+      setIsUploading(false);
+    } else {
+      // Only proceed if we have a valid brief for non-real estate campaigns
+      if (!formData.brief || formData.brief.trim().length < 10) {
+        toast({
+          title: "Brief Required",
+          description: "Please enter a product brief of at least 10 characters",
+          variant: "destructive",
+        });
+        return;
+      }
     }
-    
+
     console.log('🚀 Form validation passed, triggering campaign creation...');
-    // Manually trigger form submission
-    form.handleSubmit(onSubmit)(e);
+    // Trigger submission manually with potentially updated formData
+    // form.handleSubmit(onSubmit) uses internal form state, so we override onSubmit manually
+    onSubmit(formData);
   };
 
   const generatePreview = () => {
     const brief = form.watch("brief");
     const platform = selectedPlatform;
     const language = form.watch("language");
-    
+
     if (!brief || brief.trim().length < 10) {
       return {
         hook: "Start typing your product brief to see AI preview...",
@@ -238,8 +290,8 @@ export default function CampaignForm() {
     // Generate platform-specific preview
     const platformHooks = {
       tiktok: language === 'tagalog' ? `Grabe! ${brief.split(' ').slice(0, 3).join(' ')} na 'to! ✨` :
-              language === 'indonesian' ? `Wah! ${brief.split(' ').slice(0, 3).join(' ')} ini amazing! ✨` :
-              `OMG! This ${brief.split(' ').slice(0, 3).join(' ')} is incredible! ✨`,
+        language === 'indonesian' ? `Wah! ${brief.split(' ').slice(0, 3).join(' ')} ini amazing! ✨` :
+          `OMG! This ${brief.split(' ').slice(0, 3).join(' ')} is incredible! ✨`,
       instagram: `Ready to discover ${brief.split(' ').slice(0, 4).join(' ')}? 📸✨`,
       facebook: `Here's why everyone's talking about ${brief.split(' ').slice(0, 4).join(' ')}! 🔥`
     };
@@ -300,8 +352,8 @@ export default function CampaignForm() {
                           <FormItem>
                             <FormLabel>Campaign Name</FormLabel>
                             <FormControl>
-                              <Input 
-                                placeholder="e.g., Mango Soap TikTok Campaign" 
+                              <Input
+                                placeholder="e.g., Mango Soap TikTok Campaign"
                                 {...field}
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter') {
@@ -316,7 +368,7 @@ export default function CampaignForm() {
                           </FormItem>
                         )}
                       />
-                      
+
                       <FormField
                         control={form.control}
                         name="brief"
@@ -348,18 +400,46 @@ export default function CampaignForm() {
                               </div>
                             </div>
                             <FormControl>
-                              <Textarea 
-                                placeholder="Describe your product, target audience, and campaign goals... Or click 'AI Templates' for smart suggestions!"
-                                className="h-32 resize-none"
-                                {...field}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                                    console.log('⌨️ Ctrl+Enter detected - NOT submitting form automatically');
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                  }
-                                }}
-                              />
+                              <div className="flex flex-col gap-4">
+                                <Textarea
+                                  placeholder="Describe your product, target audience, and campaign goals... Or click 'AI Templates' for smart suggestions!"
+                                  className="h-32 resize-none"
+                                  {...field}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                                      console.log('⌨️ Ctrl+Enter detected - NOT submitting form automatically');
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                    }
+                                  }}
+                                />
+                                {selectedCampaignType === 'realEstateEdit' && (
+                                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 flex flex-col items-center justify-center relative bg-gray-50/50 hover:bg-gray-50 transition-colors">
+                                    <input 
+                                      type="file" 
+                                      multiple 
+                                      accept="image/*"
+                                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                      onChange={(e) => {
+                                        if (e.target.files) {
+                                          setSelectedFiles(Array.from(e.target.files));
+                                        }
+                                      }}
+                                    />
+                                    <ImageIcon className="text-gray-400 w-8 h-8 mb-2" />
+                                    <div className="text-sm font-semibold text-gray-700">
+                                      {selectedFiles.length > 0 
+                                        ? `${selectedFiles.length} photos selected` 
+                                        : 'Upload HDR Brackets'}
+                                    </div>
+                                    <div className="text-xs text-gray-500 mt-1 max-w-sm text-center">
+                                      {selectedFiles.length > 0 
+                                        ? selectedFiles.map(f => f.name).join(', ')
+                                        : 'Drag & drop 3-5 exposure photos (.jpg, .png)'}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -373,7 +453,7 @@ export default function CampaignForm() {
                           <FormItem>
                             <FormLabel>Campaign Description (Optional)</FormLabel>
                             <FormControl>
-                              <Input 
+                              <Input
                                 placeholder="Brief campaign description..."
                                 {...field}
                               />
@@ -400,8 +480,8 @@ export default function CampaignForm() {
                               onClick={() => setSelectedPlatform(platform.id)}
                               className={cn(
                                 "flex flex-col items-center p-4 border-2 rounded-xl hover:bg-opacity-20 transition-all",
-                                selectedPlatform === platform.id 
-                                  ? "border-ailldoit-accent bg-ailldoit-accent/10 text-ailldoit-accent" 
+                                selectedPlatform === platform.id
+                                  ? "border-ailldoit-accent bg-ailldoit-accent/10 text-ailldoit-accent"
                                   : "border-gray-200 text-ailldoit-muted hover:border-gray-300"
                               )}
                             >
@@ -446,7 +526,7 @@ export default function CampaignForm() {
 
                       <div>
                         <FormLabel>Campaign Type</FormLabel>
-                        <div className="grid grid-cols-2 gap-3 mt-2">
+                        <div className="grid grid-cols-3 gap-3 mt-2">
                           {campaignTypes.map((type) => {
                             const Icon = type.icon;
                             return (
@@ -456,8 +536,8 @@ export default function CampaignForm() {
                                 onClick={() => setSelectedCampaignType(type.id)}
                                 className={cn(
                                   "flex items-center p-4 border-2 rounded-xl hover:bg-opacity-20 transition-all",
-                                  selectedCampaignType === type.id 
-                                    ? "border-ailldoit-accent bg-ailldoit-accent/10 text-ailldoit-accent" 
+                                  selectedCampaignType === type.id
+                                    ? "border-ailldoit-accent bg-ailldoit-accent/10 text-ailldoit-accent"
                                     : "border-gray-200 text-ailldoit-muted hover:border-gray-300"
                                 )}
                               >
@@ -471,15 +551,15 @@ export default function CampaignForm() {
                     </CardContent>
                   </Card>
 
-                  <Button 
+                  <Button
                     onClick={handleSubmitClick}
                     className="w-full bg-ailldoit-accent hover:bg-ailldoit-accent/90 text-white hover:shadow-lg"
-                    disabled={createCampaign.isPending}
+                    disabled={createCampaign.isPending || isUploading}
                   >
-                    {createCampaign.isPending ? (
+                    {createCampaign.isPending || isUploading ? (
                       <>
                         <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
-                        {isEditing ? "Updating Campaign..." : "Creating Campaign..."}
+                        {isUploading ? "Uploading HDR Brackets..." : isEditing ? "Updating Campaign..." : "Creating Campaign..."}
                       </>
                     ) : (
                       <>
@@ -507,7 +587,7 @@ export default function CampaignForm() {
                       <Lightbulb className="w-5 h-5 mr-2" />
                       AI Preview
                     </h3>
-                  
+
                     <div className="space-y-4">
                       {preview && preview.hook !== "Start typing your product brief to see AI preview..." ? (
                         <>
@@ -520,7 +600,7 @@ export default function CampaignForm() {
                               <p className="text-sm text-muted-foreground italic">"{preview.hook}"</p>
                             </CardContent>
                           </Card>
-                          
+
                           <Card className="border-gray-200">
                             <CardContent className="p-4">
                               <div className="flex items-center space-x-2 mb-2">
@@ -529,7 +609,7 @@ export default function CampaignForm() {
                               <p className="text-sm text-muted-foreground">{preview.hashtags}</p>
                             </CardContent>
                           </Card>
-                          
+
                           <Card className="border-gray-200">
                             <CardContent className="p-4">
                               <div className="flex items-center space-x-2 mb-2">
