@@ -282,9 +282,15 @@ export class PhotoAssetService {
     // original buffer and prefer any non-null fields from the fallback.
     // This defends against bodies that ship previews without EXIF (rare,
     // mostly old firmware).
-    let exif = await this.parseExif(pipelineBuffer);
+    let exif = await this.parseExif(
+      pipelineBuffer,
+      isRaw ? `${file.originalname}:preview` : `${file.originalname}`
+    );
     if (isRaw && !exif.captureTime) {
-      const fallback = await this.parseExif(file.buffer);
+      const fallback = await this.parseExif(
+        file.buffer,
+        `${file.originalname}:raw-fallback`
+      );
       exif = mergeExifPreferringNonNull(exif, fallback);
     }
     if (isRaw && !exif.captureTime) {
@@ -422,21 +428,74 @@ export class PhotoAssetService {
    * Parse EXIF + dimensions from a JPEG buffer. Returns nulls rather than
    * throwing when a field is missing — different camera bodies write
    * wildly different subsets and we'd rather ingest than fail.
+   *
+   * @param tag optional label included in diagnostic logs so we can tell
+   *            "preview" vs "original RAW buffer" parses apart in the output.
    */
-  async parseExif(buffer: Buffer): Promise<ExtractedExif> {
+  async parseExif(buffer: Buffer, tag: string = "buffer"): Promise<ExtractedExif> {
+    const magic = describeMagic(buffer);
     let parsed: Record<string, any> = {};
+    let parseError: string | null = null;
+
     try {
       parsed = (await exifr.parse(buffer, { pick: EXIF_PICKS })) ?? {};
     } catch (err: any) {
-      console.warn("⚠️ PHOTO ASSET: EXIF parse failed — proceeding without metadata:", err?.message);
+      parseError = err?.message ?? String(err);
+      console.warn(
+        `⚠️ PHOTO ASSET [parseExif ${tag}]: exifr.parse(pick) threw — ${parseError}`
+      );
       parsed = {};
     }
 
-    const captureDate: Date | undefined =
-      parsed.DateTimeOriginal ?? parsed.CreateDate ?? parsed.ModifyDate;
-    const captureTime = captureDate instanceof Date && !Number.isNaN(+captureDate)
-      ? captureDate.toISOString()
-      : null;
+    // If the picked parse came back empty, try a full default parse once
+    // as a diagnostic. Helps distinguish "EXIF really isn't there" from
+    // "our pick filter missed something that defaults would find".
+    if (Object.keys(parsed).length === 0) {
+      try {
+        const full = (await exifr.parse(buffer)) ?? {};
+        const fullKeys = Object.keys(full);
+        console.warn(
+          `⚠️ PHOTO ASSET [parseExif ${tag}]: picked parse empty (size=${buffer.length}, magic=${magic}); ` +
+            `default parse returned ${fullKeys.length} keys${fullKeys.length ? `: ${fullKeys.slice(0, 15).join(",")}${fullKeys.length > 15 ? "…" : ""}` : ""}`
+        );
+        // If the default parse DID find EXIF, fall back to it — better to
+        // keep the extra fields than drop captureTime on the floor.
+        if (fullKeys.length > 0) {
+          parsed = full;
+          console.log(
+            `📷 PHOTO ASSET [parseExif ${tag}]: recovered via default parse — DateTimeOriginal=${full.DateTimeOriginal ?? "∅"}`
+          );
+        }
+      } catch (fallbackErr: any) {
+        console.warn(
+          `⚠️ PHOTO ASSET [parseExif ${tag}]: fallback default parse also failed — ${fallbackErr?.message}`
+        );
+      }
+    } else {
+      // Log a compact trace of what we got for this buffer.
+      console.log(
+        `📷 PHOTO ASSET [parseExif ${tag}]: size=${buffer.length} magic=${magic} ` +
+          `DateTimeOriginal=${parsed.DateTimeOriginal ?? "∅"} ` +
+          `CreateDate=${parsed.CreateDate ?? "∅"} ` +
+          `EV=${parsed.ExposureBiasValue ?? parsed.ExposureCompensation ?? "∅"} ` +
+          `ISO=${parsed.ISO ?? parsed.ISOSpeedRatings ?? "∅"}`
+      );
+    }
+
+    // exifr usually returns Date objects for DateTimeOriginal/CreateDate/
+    // ModifyDate, but some code paths (or certain options) leave them as
+    // raw "YYYY:MM:DD HH:mm:ss" strings. Handle both.
+    const captureTime = coerceCaptureTime(
+      parsed.DateTimeOriginal ?? parsed.CreateDate ?? parsed.ModifyDate
+    );
+    if (!captureTime && (parsed.DateTimeOriginal || parsed.CreateDate || parsed.ModifyDate)) {
+      console.warn(
+        `⚠️ PHOTO ASSET [parseExif ${tag}]: date fields present but unparseable — ` +
+          `DateTimeOriginal=${JSON.stringify(parsed.DateTimeOriginal)} ` +
+          `CreateDate=${JSON.stringify(parsed.CreateDate)} ` +
+          `ModifyDate=${JSON.stringify(parsed.ModifyDate)}`
+      );
+    }
 
     const iso = numberOrNull(parsed.ISO ?? parsed.ISOSpeedRatings);
     const fNumber = numberOrNull(parsed.FNumber);
@@ -463,6 +522,101 @@ export class PhotoAssetService {
       raw: parsed,
     };
   }
+}
+
+/**
+ * Coerce any value EXIF might return for a date field into an ISO-8601
+ * string, or null if it can't be interpreted as a real timestamp.
+ *
+ * Accepts:
+ *   - Date instances (what exifr returns by default)
+ *   - "YYYY:MM:DD HH:mm:ss" strings (EXIF's wire format — some parsers
+ *     return this directly, and it's what sits inside the JSON `raw`
+ *     blob after round-tripping through the DB)
+ *   - ISO-8601 strings (already normalised)
+ *   - Unix seconds/ms numbers (rare, but some tools emit them)
+ */
+function coerceCaptureTime(value: unknown): string | null {
+  if (value == null) return null;
+
+  if (value instanceof Date) {
+    return Number.isNaN(+value) ? null : value.toISOString();
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    // Heuristic: treat <1e12 as seconds, else milliseconds. Anything
+    // earlier than 2001 or later than 2100 is almost certainly wrong.
+    const ms = value < 1e12 ? value * 1000 : value;
+    const d = new Date(ms);
+    return Number.isNaN(+d) ? null : d.toISOString();
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    // EXIF wire format: "2024:04:18 10:23:15". Swap the date separators so
+    // the JS Date parser can read it.
+    const exifMatch = trimmed.match(
+      /^(\d{4}):(\d{2}):(\d{2})[ T](\d{2}):(\d{2}):(\d{2})(.*)$/
+    );
+    if (exifMatch) {
+      const [, y, mo, d, h, mi, s, rest] = exifMatch;
+      const iso = `${y}-${mo}-${d}T${h}:${mi}:${s}${rest || ""}`;
+      const parsed = new Date(iso);
+      if (!Number.isNaN(+parsed)) return parsed.toISOString();
+    }
+
+    // Last-resort: let Date try. Accepts ISO-8601, RFC2822, etc.
+    const parsed = new Date(trimmed);
+    return Number.isNaN(+parsed) ? null : parsed.toISOString();
+  }
+
+  return null;
+}
+
+/**
+ * Return a short, human-readable label for the first few bytes of a buffer —
+ * used in parseExif diagnostics so we can tell at a glance whether an
+ * incoming "image/jpeg" file is actually a JPEG (FF D8 FF), HEIF/HEIC
+ * (`ftyp` box), PNG, or something unexpected that would explain an empty
+ * EXIF parse.
+ */
+function describeMagic(buffer: Buffer): string {
+  if (buffer.length < 12) return `short(${buffer.length})`;
+
+  // JPEG: FF D8 FF
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return "jpeg";
+  }
+  // PNG: 89 50 4E 47
+  if (
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47
+  ) {
+    return "png";
+  }
+  // ISOBMFF (HEIF/HEIC/CR3/MP4): bytes 4-7 == "ftyp"
+  if (
+    buffer[4] === 0x66 && // f
+    buffer[5] === 0x74 && // t
+    buffer[6] === 0x79 && // y
+    buffer[7] === 0x70 // p
+  ) {
+    const brand = buffer.slice(8, 12).toString("ascii");
+    return `isobmff(${brand})`;
+  }
+  // TIFF: "II*\0" or "MM\0*"
+  if (
+    (buffer[0] === 0x49 && buffer[1] === 0x49 && buffer[2] === 0x2a) ||
+    (buffer[0] === 0x4d && buffer[1] === 0x4d && buffer[3] === 0x2a)
+  ) {
+    return "tiff";
+  }
+  // Fallback: first 8 bytes as hex
+  return `unknown(${buffer.slice(0, 8).toString("hex")})`;
 }
 
 function numberOrNull(value: unknown): number | null {
