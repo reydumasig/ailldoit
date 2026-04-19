@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, json, varchar, index } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, json, varchar, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { sql } from 'drizzle-orm';
@@ -407,22 +407,44 @@ export const editVersions = pgTable("edit_versions", {
   jobId: integer("job_id").references(() => editJobs.id, { onDelete: "set null" }),
   versionNumber: integer("version_number").notNull(),
   outputUrl: text("output_url").notNull(),
+  // Clean (unwatermarked) rendition, produced in parallel with `outputUrl`
+  // at handler time and uploaded to a distinct Firebase path. The unlock-
+  // download endpoint returns this URL after debiting credits. Nullable
+  // because legacy rows (pre-Week-6) don't have a clean variant — those
+  // versions can't be unlocked without re-running the pipeline.
+  cleanOutputUrl: text("clean_output_url"),
   watermarked: boolean("watermarked").default(true),
   isCurrent: boolean("is_current").default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
 // Pay-on-download events. Drives billing; rows here = revenue events.
-export const photoDownloads = pgTable("photo_downloads", {
-  id: serial("id").primaryKey(),
-  projectId: integer("project_id").references(() => photoProjects.id).notNull(),
-  userId: varchar("user_id").references(() => users.id).notNull(),
-  versionId: integer("version_id").references(() => editVersions.id).notNull(),
-  creditsCharged: integer("credits_charged").notNull().default(1),
-  stripePaymentIntentId: text("stripe_payment_intent_id"),
-  downloadedAt: timestamp("downloaded_at").defaultNow(),
-  createdAt: timestamp("created_at").defaultNow(),
-});
+//
+// Unique on (project_id, version_id): we charge once per org per version.
+// The service-level idempotency check is a belt; this DB constraint is the
+// braces — if two concurrent unlock requests both pass the "not yet unlocked"
+// check and race to insert, exactly one wins, the other surfaces a 23505
+// violation and the transaction rolls back (reversing the credit debit).
+// Without this, double-billing is latent.
+export const photoDownloads = pgTable(
+  "photo_downloads",
+  {
+    id: serial("id").primaryKey(),
+    projectId: integer("project_id").references(() => photoProjects.id).notNull(),
+    userId: varchar("user_id").references(() => users.id).notNull(),
+    versionId: integer("version_id").references(() => editVersions.id).notNull(),
+    creditsCharged: integer("credits_charged").notNull().default(1),
+    stripePaymentIntentId: text("stripe_payment_intent_id"),
+    downloadedAt: timestamp("downloaded_at").defaultNow(),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("photo_downloads_project_version_uniq").on(
+      table.projectId,
+      table.versionId
+    ),
+  ]
+);
 
 // Saved per-user adjustment preferences ("Style Preferences" in AutoHDR parlance).
 // Lets an account apply consistent looks across shoots.

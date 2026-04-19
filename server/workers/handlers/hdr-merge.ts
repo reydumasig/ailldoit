@@ -34,6 +34,7 @@ import {
 } from "@shared/schema";
 import { firebaseStorageService } from "../../services/firebase-storage-service";
 import type { HandlerResult } from "./pipeline-auto";
+import { cleanFromRaw, watermarkFromRaw } from "./watermark";
 
 /** Longest-side pixels for the watermarked preview. */
 const PREVIEW_MAX_EDGE = 1920;
@@ -97,26 +98,43 @@ export async function handleHdrMerge(job: EditJob): Promise<HandlerResult> {
   // 3. Mertens-style weighted fusion, single scale.
   const merged = fuseExposures(exposures, width, height, channels);
 
-  // 4. Encode + watermark.
-  const watermarked = await sharp(merged, {
-    raw: { width, height, channels: channels as 3 },
-  })
-    .composite([{ input: watermarkSvg(width, height), top: 0, left: 0 }])
-    .jpeg({ quality: PREVIEW_JPEG_QUALITY, mozjpeg: true })
-    .toBuffer();
+  // 4. Encode both a clean and a watermarked JPEG from the same raw
+  //    fusion buffer. Clean = paid unlock-download, watermarked = free
+  //    preview. Done in parallel so we pay max(encode) not sum.
+  const [cleanBuffer, watermarkedBuffer] = await Promise.all([
+    cleanFromRaw(merged, width, height, channels as 3, {
+      jpegQuality: PREVIEW_JPEG_QUALITY,
+    }),
+    watermarkFromRaw(merged, width, height, channels as 3, {
+      jpegQuality: PREVIEW_JPEG_QUALITY,
+    }),
+  ]);
 
-  // 5. Upload to Firebase Storage under a deterministic preview path.
-  const storagePath = `photo/${inferOrgId(members[0])}/${job.projectId}/merged/bracket_${group.id}_${Date.now()}_preview.jpg`;
-  const outputUrl = await firebaseStorageService.uploadFile(
-    storagePath,
-    watermarked,
-    "image/jpeg",
-    {
+  // 5. Upload both to Firebase Storage under deterministic paths. Again
+  //    parallel; one is for UI preview, the other sits idle until a
+  //    paid unlock requests it.
+  const baseDir = `photo/${inferOrgId(members[0])}/${job.projectId}/merged`;
+  const stamp = Date.now();
+  const previewPath = `${baseDir}/bracket_${group.id}_${stamp}_preview.jpg`;
+  const cleanPath = `${baseDir}/bracket_${group.id}_${stamp}_clean.jpg`;
+
+  const [outputUrl, cleanOutputUrl] = await Promise.all([
+    firebaseStorageService.uploadFile(
+      previewPath,
+      watermarkedBuffer,
+      "image/jpeg",
+      {
+        editJobId: String(job.id),
+        bracketGroupId: String(group.id),
+        kind: "hdr_preview",
+      }
+    ),
+    firebaseStorageService.uploadFile(cleanPath, cleanBuffer, "image/jpeg", {
       editJobId: String(job.id),
       bracketGroupId: String(group.id),
-      kind: "hdr_preview",
-    }
-  );
+      kind: "hdr_clean",
+    }),
+  ]);
 
   // 6. Persist: derived photo_asset + edit_version + update group status.
   const result = await db.transaction(async (tx) => {
@@ -126,7 +144,7 @@ export async function handleHdrMerge(job: EditJob): Promise<HandlerResult> {
       sourceUrl: outputUrl,
       fileName: `bracket_${group.id}_hdr_preview.jpg`,
       mimeType: "image/jpeg",
-      sizeBytes: watermarked.byteLength,
+      sizeBytes: watermarkedBuffer.byteLength,
       widthPx: width,
       heightPx: height,
       exifData: null,
@@ -139,6 +157,7 @@ export async function handleHdrMerge(job: EditJob): Promise<HandlerResult> {
       jobId: job.id,
       versionNumber: 1,
       outputUrl,
+      cleanOutputUrl,
       watermarked: true,
       isCurrent: true,
     };
@@ -286,34 +305,5 @@ function clamp255(v: number): number {
   return Math.round(v);
 }
 
-/**
- * Diagonal "AILLDOIT PREVIEW" watermark. SVG so the text stays crisp at
- * any preview resolution, semi-transparent so the underlying image is
- * clearly visible.
- */
-function watermarkSvg(width: number, height: number): Buffer {
-  const fontSize = Math.max(28, Math.round(Math.min(width, height) * 0.045));
-  const cx = width / 2;
-  const cy = height / 2;
-  return Buffer.from(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
-      <g transform="rotate(-24 ${cx} ${cy})">
-        <text
-          x="${cx}"
-          y="${cy}"
-          font-family="Helvetica, Arial, sans-serif"
-          font-size="${fontSize}"
-          font-weight="700"
-          letter-spacing="8"
-          fill="white"
-          fill-opacity="0.28"
-          stroke="black"
-          stroke-opacity="0.18"
-          stroke-width="2"
-          text-anchor="middle"
-          dominant-baseline="middle"
-        >AILLDOIT PREVIEW</text>
-      </g>
-    </svg>`
-  );
-}
+// Watermark SVG + composite helpers live in ./watermark.ts now, shared
+// across every handler that emits preview renditions.

@@ -33,6 +33,14 @@ import {
   type PhotoCreditLedgerEntry,
 } from "@shared/schema";
 
+/**
+ * Drizzle transaction handle. Services that compose a debit with other
+ * writes (e.g. photo-download-service inserting a `photo_downloads`
+ * receipt) can pass their own `tx` into `chargeForDownload` so the debit
+ * and the receipt either both commit or neither does.
+ */
+export type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 const stripe = new Stripe(ENV.stripe.secretKey, {
   apiVersion: "2025-08-27.basil",
 });
@@ -219,21 +227,30 @@ export class PhotoCreditService {
    * overdraft — callers should respond 402.
    *
    * `amount` is positive; we write it as a negative delta internally.
+   *
+   * **Transaction composition.** When the caller passes `tx`, the debit
+   * runs inside the caller's transaction — useful when another write
+   * (e.g. the `photo_downloads` receipt) must commit or fail atomically
+   * with the debit. When `tx` is omitted we open our own transaction so
+   * existing call sites keep working unchanged.
    */
-  async chargeForDownload(input: {
-    orgId: string;
-    userId: string;
-    amount: number;
-    refId: string; // photo_download row id (stringified) or version id
-  }): Promise<PhotoCreditLedgerEntry> {
+  async chargeForDownload(
+    input: {
+      orgId: string;
+      userId: string;
+      amount: number;
+      refId: string; // photo_download row id (stringified) or version id
+    },
+    tx?: DbTx
+  ): Promise<PhotoCreditLedgerEntry> {
     if (input.amount <= 0) {
       throw new Error("Debit amount must be positive");
     }
 
-    return db.transaction(async (tx) => {
+    const runWithTx = async (t: DbTx): Promise<PhotoCreditLedgerEntry> => {
       // Lock the most recent row for this org so a concurrent debit waits.
       // SELECT ... FOR UPDATE on a single-row read is the standard pattern.
-      const [latest] = await tx
+      const [latest] = await t
         .select({ balanceAfter: photoCreditLedger.balanceAfter })
         .from(photoCreditLedger)
         .where(eq(photoCreditLedger.orgId, input.orgId))
@@ -247,7 +264,7 @@ export class PhotoCreditService {
       }
 
       const newBalance = currentBalance - input.amount;
-      const [row] = await tx
+      const [row] = await t
         .insert(photoCreditLedger)
         .values({
           orgId: input.orgId,
@@ -262,7 +279,9 @@ export class PhotoCreditService {
         .returning();
 
       return row;
-    });
+    };
+
+    return tx ? runWithTx(tx) : db.transaction(runWithTx);
   }
 
   /**

@@ -13,6 +13,8 @@
 
 import { Router, type Request, type Response } from "express";
 import multer from "multer";
+import archiver from "archiver";
+import { Readable } from "node:stream";
 import { z } from "zod";
 import { authenticateToken } from "../middleware/auth";
 import { organizationService } from "../services/organization-service";
@@ -26,7 +28,13 @@ import {
   photoCreditService,
   getPhotoCreditPacks,
   PackNotConfiguredError,
+  InsufficientCreditsError,
 } from "../services/photo-credit-service";
+import {
+  photoDownloadService,
+  NoCleanRenditionError,
+  VersionNotFoundError,
+} from "../services/photo-download-service";
 
 // Uploads are held in memory so we can pipe buffers to Firebase Storage
 // without a disk hop. 25MB per file (pro-camera JPEGs run 8–20MB), up to
@@ -573,6 +581,329 @@ router.post("/credits/checkout", async (req: Request, res: Response) => {
     res.status(500).json({ message: "Failed to start checkout" });
   }
 });
+
+// -----------------------------------------------------------------------------
+// Downloads (Week 6) — pay-on-unlock clean renditions
+// -----------------------------------------------------------------------------
+
+/**
+ * POST /api/photo/projects/:id/versions/:versionId/unlock
+ *
+ * Pay-once-per-version unlock. Debits 1 credit if this org hasn't paid for
+ * this version before, returns the clean (unwatermarked) URL either way.
+ * Idempotent: lost-tab re-unlocks don't re-bill.
+ *
+ * Status codes:
+ *   200 — unlocked (charged=false if already paid, true if freshly debited)
+ *   402 — InsufficientCreditsError (not enough credits; includes balance)
+ *   404 — version not found / not in this org
+ *   409 — version has no clean rendition (pre-Week-6 data)
+ */
+router.post(
+  "/projects/:id/versions/:versionId/unlock",
+  async (req: Request, res: Response) => {
+    const projectId = Number(req.params.id);
+    const versionId = Number(req.params.versionId);
+    if (!Number.isFinite(projectId) || projectId <= 0) {
+      return res.status(400).json({ message: "Invalid project id" });
+    }
+    if (!Number.isFinite(versionId) || versionId <= 0) {
+      return res.status(400).json({ message: "Invalid version id" });
+    }
+    try {
+      // Editor+ required — viewers can see watermarked previews but not unlock.
+      await organizationService.requireMembership(
+        req.user!.id,
+        req.orgId!,
+        "editor"
+      );
+      const project = await photoProjectService.getByIdForOrg(projectId, req.orgId!);
+      if (!project) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      const result = await photoDownloadService.unlock({
+        orgId: req.orgId!,
+        userId: req.user!.id,
+        projectId,
+        versionId,
+      });
+
+      res.json({
+        url: result.cleanUrl,
+        charged: result.charged,
+        downloadId: result.download.id,
+        versionId: result.version.id,
+        balanceAfter: result.balanceAfter,
+      });
+    } catch (error: any) {
+      if (error instanceof InsufficientCreditsError) {
+        return res.status(402).json({
+          message: "Insufficient credits — top up to unlock this version.",
+          required: error.required,
+          available: error.available,
+        });
+      }
+      if (error instanceof VersionNotFoundError) {
+        return res.status(404).json({ message: error.message });
+      }
+      if (error instanceof NoCleanRenditionError) {
+        return res.status(409).json({ message: error.message });
+      }
+      if (error.statusCode) {
+        return res.status(error.statusCode).json({ message: error.message });
+      }
+      console.error("❌ PHOTO: Unlock failed", error);
+      res.status(500).json({ message: "Unlock failed" });
+    }
+  }
+);
+
+const batchUnlockBody = z.object({
+  versionIds: z.array(z.number().int().positive()).min(1).max(50),
+  /**
+   * When true, we only return the plan (chargeable vs already-unlocked vs
+   * missing vs invalid + total credits required). No debit, no download.
+   * UI uses this to render the confirm dialog.
+   */
+  planOnly: z.boolean().optional(),
+});
+
+/**
+ * POST /api/photo/projects/:id/versions/batch-unlock
+ *
+ * Two modes:
+ *   - planOnly=true: returns { chargeable, alreadyUnlocked, missingClean,
+ *     invalid, creditsNeeded, balance } without touching credits. Safe to
+ *     call on every checkbox change.
+ *   - default: debits credits for the chargeable set and returns
+ *     { unlocked: UnlockResult[], failed?: { reason, required, available } }.
+ *     Partial fulfilment on overdraft — caller can render "you unlocked N
+ *     of M, top up to finish the rest."
+ *
+ * Does NOT stream a ZIP — clients call this to debit, then hit the ZIP
+ * endpoint below with the resulting version ids. Keeping unlock (payment)
+ * and delivery (bytes) separate means a flaky client network doesn't
+ * re-bill.
+ */
+router.post(
+  "/projects/:id/versions/batch-unlock",
+  async (req: Request, res: Response) => {
+    const projectId = Number(req.params.id);
+    if (!Number.isFinite(projectId) || projectId <= 0) {
+      return res.status(400).json({ message: "Invalid project id" });
+    }
+    const parsed = batchUnlockBody.safeParse(req.body);
+    if (!parsed.success) {
+      return res
+        .status(400)
+        .json({ message: "Invalid request", errors: parsed.error.flatten() });
+    }
+    try {
+      await organizationService.requireMembership(
+        req.user!.id,
+        req.orgId!,
+        "editor"
+      );
+      const project = await photoProjectService.getByIdForOrg(projectId, req.orgId!);
+      if (!project) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      if (parsed.data.planOnly) {
+        const plan = await photoDownloadService.planBatch({
+          orgId: req.orgId!,
+          projectId,
+          versionIds: parsed.data.versionIds,
+        });
+        const balance = await photoCreditService.getBalance(req.orgId!);
+        return res.json({
+          plan: {
+            chargeable: plan.chargeable.map((v) => v.id),
+            alreadyUnlocked: plan.alreadyUnlocked.map((v) => v.id),
+            missingClean: plan.missingClean.map((v) => v.id),
+            invalid: plan.invalid,
+            creditsNeeded: plan.creditsNeeded,
+          },
+          balance,
+        });
+      }
+
+      const { results, insufficient } = await photoDownloadService.unlockBatch({
+        orgId: req.orgId!,
+        userId: req.user!.id,
+        projectId,
+        versionIds: parsed.data.versionIds,
+      });
+
+      const balance = await photoCreditService.getBalance(req.orgId!);
+      res.json({
+        unlocked: results.map((r) => ({
+          versionId: r.version.id,
+          url: r.cleanUrl,
+          charged: r.charged,
+          downloadId: r.download.id,
+        })),
+        failed: insufficient
+          ? {
+              reason: "insufficient_credits",
+              required: insufficient.required,
+              available: insufficient.available,
+            }
+          : undefined,
+        balance,
+      });
+    } catch (error: any) {
+      if (error.statusCode) {
+        return res.status(error.statusCode).json({ message: error.message });
+      }
+      console.error("❌ PHOTO: Batch unlock failed", error);
+      res.status(500).json({ message: "Batch unlock failed" });
+    }
+  }
+);
+
+/**
+ * GET /api/photo/projects/:id/versions/download.zip?versionIds=1,2,3
+ *
+ * Streams a ZIP of the clean renditions for the given versions. Does NOT
+ * debit — caller must have already called batch-unlock. Versions that have
+ * never been unlocked by this org are skipped (we check photo_downloads).
+ * This split prevents re-billing on browser retry.
+ *
+ * Why GET not POST: browsers download GET responses naturally via
+ * `<a download>` / window.location. POST would force a fetch+Blob dance.
+ * Query-string `versionIds` works fine for the 50-item cap we enforce on
+ * batch-unlock.
+ */
+router.get(
+  "/projects/:id/versions/download.zip",
+  async (req: Request, res: Response) => {
+    const projectId = Number(req.params.id);
+    if (!Number.isFinite(projectId) || projectId <= 0) {
+      return res.status(400).json({ message: "Invalid project id" });
+    }
+
+    const raw = String(req.query.versionIds ?? "");
+    const versionIds = raw
+      .split(",")
+      .map((s) => Number(s.trim()))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    if (versionIds.length === 0) {
+      return res
+        .status(400)
+        .json({ message: "versionIds query param required (comma-separated ints)" });
+    }
+    if (versionIds.length > 50) {
+      return res.status(400).json({ message: "Too many versions — max 50 per zip" });
+    }
+
+    try {
+      const project = await photoProjectService.getByIdForOrg(projectId, req.orgId!);
+      if (!project) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      // Plan tells us which versions are already unlocked AND have a clean
+      // rendition. We only stream those — anything else would require a
+      // debit, which this endpoint deliberately does not do.
+      const plan = await photoDownloadService.planBatch({
+        orgId: req.orgId!,
+        projectId,
+        versionIds,
+      });
+      if (plan.alreadyUnlocked.length === 0) {
+        return res.status(409).json({
+          message:
+            "None of the requested versions have been unlocked yet. Call /versions/batch-unlock first.",
+          invalid: plan.invalid,
+          missingClean: plan.missingClean.map((v) => v.id),
+          chargeable: plan.chargeable.map((v) => v.id),
+        });
+      }
+
+      // Stream the zip. `archiver` pipes straight to the Express response
+      // so memory stays bounded regardless of how many MB we're shipping.
+      res.setHeader("Content-Type", "application/zip");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="ailldoit-project-${projectId}-${Date.now()}.zip"`
+      );
+
+      const archive = archiver("zip", { zlib: { level: 6 } });
+      archive.on("warning", (warn) => {
+        console.warn("⚠️ PHOTO: zip archiver warning", warn);
+      });
+      archive.on("error", (err) => {
+        console.error("❌ PHOTO: zip archiver error", err);
+        // Socket is already streaming — destroy to signal broken zip.
+        res.destroy(err);
+      });
+      archive.pipe(res);
+
+      // Fetch and append in bounded-parallel batches. Prior implementation
+      // buffered each file into memory via `arrayBuffer()` and fetched
+      // serially; piping the web-stream straight into archiver keeps
+      // memory bounded, and batching by ZIP_FETCH_CONCURRENCY reduces total
+      // wall-time for large batches while capping connection count to the
+      // storage origin.
+      const ZIP_FETCH_CONCURRENCY = 6;
+      const candidates = plan.alreadyUnlocked.filter((v) => !!v.cleanOutputUrl);
+
+      for (let i = 0; i < candidates.length; i += ZIP_FETCH_CONCURRENCY) {
+        const slice = candidates.slice(i, i + ZIP_FETCH_CONCURRENCY);
+        const fetched = await Promise.all(
+          slice.map(async (version) => {
+            try {
+              const r = await fetch(version.cleanOutputUrl!);
+              if (!r.ok || !r.body) {
+                console.warn(
+                  `⚠️ PHOTO: Skipping version ${version.id} in zip — fetch ${r.status}`
+                );
+                return null;
+              }
+              return {
+                id: version.id,
+                name: `version_${version.id}_clean.jpg`,
+                // Node-web ReadableStream → Node Readable so archiver can
+                // consume it with its own backpressure.
+                stream: Readable.fromWeb(r.body as any),
+              };
+            } catch (entryErr: any) {
+              console.warn(
+                `⚠️ PHOTO: Skipping version ${version.id} in zip:`,
+                entryErr?.message
+              );
+              return null;
+            }
+          })
+        );
+
+        // Append sequentially within the batch — archiver processes one
+        // entry at a time, so sequential append is the natural fit. The
+        // parallelism we care about is kicking off the HTTP fetches
+        // concurrently (above); appending a stream is cheap.
+        for (const entry of fetched) {
+          if (!entry) continue;
+          archive.append(entry.stream, { name: entry.name });
+        }
+      }
+
+      await archive.finalize();
+    } catch (error: any) {
+      if (error.statusCode) {
+        return res.status(error.statusCode).json({ message: error.message });
+      }
+      // If we already flushed headers, we can't send JSON — log and bail.
+      if (res.headersSent) {
+        console.error("❌ PHOTO: zip stream failed mid-flight", error);
+        return res.destroy(error);
+      }
+      console.error("❌ PHOTO: zip download failed", error);
+      res.status(500).json({ message: "Zip download failed" });
+    }
+  }
+);
 
 // -----------------------------------------------------------------------------
 // Current org (debug/inspection — used by client to show workspace name)
