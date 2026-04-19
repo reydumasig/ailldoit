@@ -323,6 +323,202 @@ router.get(
 );
 
 /**
+ * POST /api/photo/projects/:id/assets/delete
+ * Bulk delete source photos. Body: { assetIds: number[], force?: boolean }.
+ *
+ * Uses POST+body rather than DELETE with a querystring because ID lists
+ * can easily exceed URL length limits once a user selects dozens of photos,
+ * and most corporate proxies strip bodies from DELETE requests.
+ *
+ * If any target has paid download history we refuse with 409 so the UI can
+ * prompt the user to confirm — resending with force=true then hard-deletes
+ * everything including the receipts.
+ */
+router.post(
+  "/projects/:id/assets/delete",
+  async (req: Request, res: Response) => {
+    const projectId = Number(req.params.id);
+    if (!Number.isFinite(projectId) || projectId <= 0) {
+      return res.status(400).json({ message: "Invalid project id" });
+    }
+
+    // Accept either a single-id or array-of-ids shape. Clients pick
+    // whichever is more ergonomic.
+    const body = req.body as { assetIds?: unknown; force?: unknown };
+    const rawIds = Array.isArray(body.assetIds) ? body.assetIds : [];
+    const assetIds = rawIds
+      .map((v) => Number(v))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    const force = body.force === true;
+
+    if (assetIds.length === 0) {
+      return res
+        .status(400)
+        .json({ message: "assetIds must be a non-empty array of ids" });
+    }
+
+    try {
+      await organizationService.requireMembership(
+        req.user!.id,
+        req.orgId!,
+        "editor"
+      );
+      const project = await photoProjectService.getByIdForOrg(
+        projectId,
+        req.orgId!
+      );
+      if (!project) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      const result = await photoAssetService.deleteAssets(assetIds, {
+        projectId,
+        force,
+      });
+
+      if (result.hasPaidDownloads) {
+        // 409 Conflict — the client should show a "this photo has paid
+        // downloads, delete anyway?" prompt and retry with force=true.
+        return res.status(409).json({
+          message:
+            "One or more photos have paid download receipts. Pass force=true to delete anyway.",
+          hasPaidDownloads: true,
+        });
+      }
+
+      // Re-run bracket detection so any cluster that now has <2 members
+      // disappears from the UI immediately. Cheap and idempotent.
+      let brackets: { groupsCreated: number; assetsGrouped: number } | null =
+        null;
+      try {
+        const detect = await bracketDetectionService.detectForProject(
+          projectId
+        );
+        brackets = {
+          groupsCreated: detect.groupsCreated,
+          assetsGrouped: detect.assetsGrouped,
+        };
+      } catch (detectErr: any) {
+        console.warn(
+          "⚠️ PHOTO: Post-delete bracket detection failed:",
+          detectErr?.message
+        );
+      }
+
+      trackEvent("photo_assets_deleted", {
+        userId: req.user!.id,
+        orgId: req.orgId!,
+        props: {
+          project_id: projectId,
+          deleted: result.deletedIds.length,
+          skipped: result.skippedIds.length,
+          forced: force,
+          storage_paths_failed: result.storagePathsFailed,
+        },
+      });
+
+      return res.json({
+        deleted: result.deletedIds.length,
+        deletedIds: result.deletedIds,
+        skipped: result.skippedIds,
+        brackets,
+      });
+    } catch (error: any) {
+      if (error.statusCode) {
+        return res
+          .status(error.statusCode)
+          .json({ message: error.message });
+      }
+      console.error("❌ PHOTO: Delete assets failed", error);
+      return res.status(500).json({ message: "Delete failed" });
+    }
+  }
+);
+
+/**
+ * DELETE /api/photo/projects/:id/assets/:assetId
+ * Convenience single-asset wrapper around the bulk delete service.
+ * Accepts `?force=true` to override the paid-download safety check.
+ */
+router.delete(
+  "/projects/:id/assets/:assetId",
+  async (req: Request, res: Response) => {
+    const projectId = Number(req.params.id);
+    const assetId = Number(req.params.assetId);
+    if (!Number.isFinite(projectId) || projectId <= 0) {
+      return res.status(400).json({ message: "Invalid project id" });
+    }
+    if (!Number.isFinite(assetId) || assetId <= 0) {
+      return res.status(400).json({ message: "Invalid asset id" });
+    }
+    const force = req.query.force === "true";
+
+    try {
+      await organizationService.requireMembership(
+        req.user!.id,
+        req.orgId!,
+        "editor"
+      );
+      const project = await photoProjectService.getByIdForOrg(
+        projectId,
+        req.orgId!
+      );
+      if (!project) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      const result = await photoAssetService.deleteAssets([assetId], {
+        projectId,
+        force,
+      });
+
+      if (result.hasPaidDownloads) {
+        return res.status(409).json({
+          message:
+            "This photo has paid download receipts. Retry with ?force=true to delete anyway.",
+          hasPaidDownloads: true,
+        });
+      }
+      if (result.deletedIds.length === 0) {
+        return res.status(404).json({ message: "Asset not found" });
+      }
+
+      // Bracket detection pass — see the bulk handler for context.
+      try {
+        await bracketDetectionService.detectForProject(projectId);
+      } catch (detectErr: any) {
+        console.warn(
+          "⚠️ PHOTO: Post-delete bracket detection failed:",
+          detectErr?.message
+        );
+      }
+
+      trackEvent("photo_assets_deleted", {
+        userId: req.user!.id,
+        orgId: req.orgId!,
+        props: {
+          project_id: projectId,
+          deleted: 1,
+          skipped: 0,
+          forced: force,
+          storage_paths_failed: result.storagePathsFailed,
+        },
+      });
+
+      return res.json({ deleted: 1 });
+    } catch (error: any) {
+      if (error.statusCode) {
+        return res
+          .status(error.statusCode)
+          .json({ message: error.message });
+      }
+      console.error("❌ PHOTO: Delete asset failed", error);
+      return res.status(500).json({ message: "Delete failed" });
+    }
+  }
+);
+
+/**
  * GET /api/photo/projects/:id/assets/:assetId/versions
  * Version chain for a single asset. Used by the detail page's history
  * strip — each merge/enhance/WB pass appends one row here.

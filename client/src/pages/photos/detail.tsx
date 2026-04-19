@@ -1,4 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useRoute } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -29,7 +37,9 @@ import {
   AlertTriangle,
   RefreshCw,
   Sparkles,
+  Trash2,
   Unlock,
+  X,
 } from "lucide-react";
 import type { PhotoAsset, PhotoProject } from "@shared/schema";
 import { CreditsChip } from "@/components/photos/credits-chip";
@@ -131,6 +141,82 @@ type BatchPlanResponse = {
   balance: number;
 };
 
+// -----------------------------------------------------------------------------
+// Selection + bulk-delete context
+// -----------------------------------------------------------------------------
+//
+// Photo thumbnails live in two different places — the flat "singles" grid
+// below and inline inside each bracket group card. Rather than thread
+// selection state down two separate prop trees, we expose it via a small
+// React Context scoped to the detail page. AssetThumbnail reads it
+// regardless of where it's rendered.
+//
+// The UX model is intentionally simple:
+//   - Every thumbnail gets a checkbox that appears on hover or when checked
+//   - Once any asset is selected, a sticky action bar slides in with a
+//     count + Delete + Cancel
+//   - Deleting runs the bulk endpoint, invalidates asset + bracket queries
+//     on success, and clears the selection
+
+type AssetSelectionContextValue = {
+  selectedIds: ReadonlySet<number>;
+  isSelected: (id: number) => boolean;
+  toggle: (id: number) => void;
+  clear: () => void;
+};
+
+const AssetSelectionContext = createContext<AssetSelectionContextValue | null>(
+  null
+);
+
+function useAssetSelection(): AssetSelectionContextValue {
+  const ctx = useContext(AssetSelectionContext);
+  if (!ctx) {
+    // A safe default for components that might render outside a provider
+    // (e.g. MergedPreview's before/after thumbnails have no selection UI).
+    const noop = () => {};
+    return {
+      selectedIds: new Set(),
+      isSelected: () => false,
+      toggle: noop,
+      clear: noop,
+    };
+  }
+  return ctx;
+}
+
+function AssetSelectionProvider({ children }: { children: React.ReactNode }) {
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(
+    () => new Set<number>()
+  );
+
+  const toggle = useCallback((id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+  const clear = useCallback(() => setSelectedIds(new Set()), []);
+
+  const value = useMemo<AssetSelectionContextValue>(
+    () => ({
+      selectedIds,
+      isSelected: (id: number) => selectedIds.has(id),
+      toggle,
+      clear,
+    }),
+    [selectedIds, toggle, clear]
+  );
+
+  return (
+    <AssetSelectionContext.Provider value={value}>
+      {children}
+    </AssetSelectionContext.Provider>
+  );
+}
+
 export default function PhotosDetail() {
   const [, params] = useRoute<{ id: string }>("/photos/:id");
   const id = params?.id;
@@ -207,7 +293,7 @@ export default function PhotosDetail() {
         )}
 
         {project && id && (
-          <>
+          <AssetSelectionProvider>
             <Card className="bg-white">
               <CardContent className="p-5">
                 <div className="flex items-start gap-4">
@@ -235,6 +321,8 @@ export default function PhotosDetail() {
 
             <UploadDropzone projectId={id} assetCount={assets.length} />
 
+            <SelectionActionBar projectId={id} />
+
             <BracketList
               projectId={id}
               groups={groups}
@@ -249,7 +337,7 @@ export default function PhotosDetail() {
               isError={assetsQuery.isError}
               label={groups.length > 0 ? "Singles" : "Source photos"}
             />
-          </>
+          </AssetSelectionProvider>
         )}
       </main>
     </div>
@@ -483,6 +571,224 @@ function AssetGrid({
         ))}
       </div>
     </section>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Selection action bar — shown only when at least one asset is selected.
+// -----------------------------------------------------------------------------
+//
+// We render this inside the normal page flow (below the upload dropzone)
+// rather than as a floating popover so it can't obscure bracket cards or
+// the photo grid on smaller screens. It's visually distinctive but not
+// modal — users can continue clicking other thumbnails to grow/shrink the
+// selection while it's open.
+
+type DeleteAssetsResponse = {
+  deleted: number;
+  deletedIds: number[];
+  skipped: number[];
+  brackets: { groupsCreated: number; assetsGrouped: number } | null;
+};
+
+type DeleteAssetsErrorBody = {
+  message?: string;
+  hasPaidDownloads?: boolean;
+};
+
+function SelectionActionBar({ projectId }: { projectId: string }) {
+  const { selectedIds, clear } = useAssetSelection();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [paidConfirmOpen, setPaidConfirmOpen] = useState(false);
+
+  const ids = useMemo(() => Array.from(selectedIds), [selectedIds]);
+
+  const deleteMutation = useMutation<
+    DeleteAssetsResponse,
+    Error,
+    { force: boolean }
+  >({
+    mutationFn: async ({ force }) => {
+      const res = await apiRequest(
+        "POST",
+        `/api/photo/projects/${projectId}/assets/delete`,
+        { assetIds: ids, force }
+      );
+      return (await res.json()) as DeleteAssetsResponse;
+    },
+    onSuccess: (data) => {
+      toast({
+        title: `Deleted ${data.deleted} photo${data.deleted === 1 ? "" : "s"}`,
+        description:
+          data.brackets && data.brackets.groupsCreated > 0
+            ? `${data.brackets.groupsCreated} bracket group${data.brackets.groupsCreated === 1 ? "" : "s"} remain`
+            : undefined,
+      });
+      clear();
+      setConfirmOpen(false);
+      setPaidConfirmOpen(false);
+      queryClient.invalidateQueries({
+        queryKey: [`/api/photo/projects/${projectId}/assets`],
+      });
+      queryClient.invalidateQueries({
+        queryKey: [`/api/photo/projects/${projectId}/brackets`],
+      });
+    },
+    onError: async (err) => {
+      // apiRequest's throwIfResNotOk throws with a `<status>: <body>` string
+      // in the message — dig out the JSON body so we can detect the 409
+      // paid-download case and show the right confirm dialog.
+      const message = err.message ?? "";
+      let parsed: DeleteAssetsErrorBody | null = null;
+      const jsonStart = message.indexOf("{");
+      if (jsonStart >= 0) {
+        try {
+          parsed = JSON.parse(message.slice(jsonStart)) as DeleteAssetsErrorBody;
+        } catch {
+          parsed = null;
+        }
+      }
+      if (parsed?.hasPaidDownloads) {
+        setConfirmOpen(false);
+        setPaidConfirmOpen(true);
+        return;
+      }
+      toast({
+        title: "Delete failed",
+        description: parsed?.message ?? message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  if (ids.length === 0) return null;
+
+  return (
+    <>
+      <Card className="border-ailldoit-accent/30 bg-ailldoit-accent/5">
+        <CardContent className="p-3 flex items-center justify-between gap-3">
+          <div className="text-sm text-ailldoit-black font-medium">
+            {ids.length} selected
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={clear}
+              disabled={deleteMutation.isPending}
+            >
+              <X className="w-4 h-4 mr-1" />
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => setConfirmOpen(true)}
+              disabled={deleteMutation.isPending}
+            >
+              <Trash2 className="w-4 h-4 mr-1" />
+              Delete {ids.length}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Initial confirmation — the common case. */}
+      <Dialog
+        open={confirmOpen}
+        onOpenChange={(open) => {
+          if (!deleteMutation.isPending) setConfirmOpen(open);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Delete {ids.length} photo{ids.length === 1 ? "" : "s"}?
+            </DialogTitle>
+            <DialogDescription>
+              This removes the source {ids.length === 1 ? "file" : "files"},
+              any renditions derived from {ids.length === 1 ? "it" : "them"},
+              and archived RAW copies. This can't be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setConfirmOpen(false)}
+              disabled={deleteMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteMutation.mutate({ force: false })}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                  Deleting…
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-4 h-4 mr-1" />
+                  Delete
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Secondary confirmation — paid-download case. Opens when the
+          server responds 409 { hasPaidDownloads: true }. Retries with
+          force=true, which also nukes the photo_downloads receipts. */}
+      <Dialog
+        open={paidConfirmOpen}
+        onOpenChange={(open) => {
+          if (!deleteMutation.isPending) setPaidConfirmOpen(open);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Photos have paid downloads</DialogTitle>
+            <DialogDescription>
+              One or more of the selected photos have already been purchased
+              and downloaded. Deleting them will also permanently remove the
+              download receipts. Continue anyway?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setPaidConfirmOpen(false)}
+              disabled={deleteMutation.isPending}
+            >
+              Keep photos
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteMutation.mutate({ force: true })}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                  Deleting…
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-4 h-4 mr-1" />
+                  Delete anyway
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -831,6 +1137,9 @@ function formatEv(v: number): string {
 
 function AssetThumbnail({ asset, compact = false }: { asset: PhotoAsset; compact?: boolean }) {
   const [imgError, setImgError] = useState(false);
+  const { isSelected, toggle } = useAssetSelection();
+  const selected = isSelected(asset.id);
+
   const exif = asset.exifData as {
     captureTime?: string | null;
     iso?: number | null;
@@ -840,8 +1149,21 @@ function AssetThumbnail({ asset, compact = false }: { asset: PhotoAsset; compact
   const captureTime = exif?.captureTime ? new Date(exif.captureTime) : null;
   const ev = typeof exif?.exposureBiasEv === "number" ? exif.exposureBiasEv : null;
 
+  // A single click on the tile toggles the selection — no "enter select
+  // mode" toggle. Keeps the model dead simple: click to pick, click again
+  // to unpick, Delete from the action bar.
+  const onThumbClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    toggle(asset.id);
+  };
+
   return (
-    <Card className="bg-white overflow-hidden">
+    <Card
+      className={`bg-white overflow-hidden group transition-shadow cursor-pointer ${
+        selected ? "ring-2 ring-ailldoit-accent" : "hover:shadow-md"
+      }`}
+      onClick={onThumbClick}
+    >
       <div className="aspect-square bg-gray-100 flex items-center justify-center relative">
         {imgError ? (
           <ImageOff className="w-8 h-8 text-gray-400" />
@@ -854,6 +1176,39 @@ function AssetThumbnail({ asset, compact = false }: { asset: PhotoAsset; compact
             loading="lazy"
           />
         )}
+
+        {/* Selection checkbox — shown on hover OR when selected. The
+            dedicated click handler lets users check/uncheck without
+            triggering the card's own click-to-toggle (they stack, which
+            is fine — both end up calling toggle()). */}
+        <button
+          type="button"
+          aria-label={selected ? "Deselect photo" : "Select photo"}
+          onClick={(e) => {
+            e.stopPropagation();
+            toggle(asset.id);
+          }}
+          className={`absolute top-1 left-1 w-5 h-5 rounded border flex items-center justify-center transition-opacity ${
+            selected
+              ? "bg-ailldoit-accent border-ailldoit-accent opacity-100"
+              : "bg-white/90 border-gray-300 opacity-0 group-hover:opacity-100"
+          }`}
+        >
+          {selected ? (
+            <svg
+              className="w-3 h-3 text-white"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+            >
+              <path
+                fillRule="evenodd"
+                d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                clipRule="evenodd"
+              />
+            </svg>
+          ) : null}
+        </button>
+
         {compact && ev !== null ? (
           <span className="absolute bottom-1 right-1 text-[10px] font-mono text-white bg-black/60 rounded px-1">
             {ev > 0 ? `+${Number.isInteger(ev) ? ev : ev.toFixed(1)}` : Number.isInteger(ev) ? String(ev) : ev.toFixed(1)} EV
