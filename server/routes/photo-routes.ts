@@ -22,6 +22,11 @@ import { bracketDetectionService } from "../services/bracket-detection-service";
 import { editJobService } from "../services/edit-job-service";
 import { editVersionService } from "../services/edit-version-service";
 import { enqueuePhotoJob } from "../queues/photo-queue";
+import {
+  photoCreditService,
+  getPhotoCreditPacks,
+  PackNotConfiguredError,
+} from "../services/photo-credit-service";
 
 // Uploads are held in memory so we can pipe buffers to Firebase Storage
 // without a disk hop. 25MB per file (pro-camera JPEGs run 8–20MB), up to
@@ -464,6 +469,108 @@ router.get("/projects/:id/jobs", async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error("❌ PHOTO: Failed to list jobs", error);
     res.status(500).json({ message: "Failed to list jobs" });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// Credits (Week 5) — org-scoped wallet backed by photo_credit_ledger
+// -----------------------------------------------------------------------------
+
+/**
+ * List available credit packs with display prices. Safe to call
+ * unauthenticated in the future (for a marketing page) but for now lives
+ * under /api/photo/* which requires auth. Packs with an unset Stripe
+ * priceId are filtered out so the UI never shows a "buy" button that
+ * wouldn't work.
+ */
+router.get("/credits/packs", async (_req: Request, res: Response) => {
+  try {
+    const packs = getPhotoCreditPacks().filter((p) => !!p.priceId);
+    res.json({ packs });
+  } catch (error: any) {
+    console.error("❌ PHOTO: Failed to list packs", error);
+    res.status(500).json({ message: "Failed to load credit packs" });
+  }
+});
+
+/**
+ * Return the active org's current credit balance. Drives the header chip.
+ * Cheap call — single row lookup on the ledger's newest entry for the org.
+ */
+router.get("/credits/balance", async (req: Request, res: Response) => {
+  try {
+    const balance = await photoCreditService.getBalance(req.orgId!);
+    res.json({ orgId: req.orgId, balance });
+  } catch (error: any) {
+    console.error("❌ PHOTO: Failed to read balance", error);
+    res.status(500).json({ message: "Failed to load credit balance" });
+  }
+});
+
+/**
+ * Recent ledger entries for the active org — transactions panel.
+ */
+router.get("/credits/ledger", async (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(parseInt(String(req.query.limit ?? "50"), 10) || 50, 200);
+    const entries = await photoCreditService.listRecent(req.orgId!, limit);
+    res.json({ entries });
+  } catch (error: any) {
+    console.error("❌ PHOTO: Failed to list ledger", error);
+    res.status(500).json({ message: "Failed to load ledger" });
+  }
+});
+
+const checkoutBody = z.object({
+  packId: z.enum(["starter", "growth", "agency"]),
+  // Client provides these so we redirect back to the right route after
+  // Stripe Checkout. Keep them on the server-side of truth only via allow-list
+  // of our own domain in a later hardening pass.
+  successUrl: z.string().url().optional(),
+  cancelUrl: z.string().url().optional(),
+});
+
+/**
+ * Start a Stripe Checkout session for a credit pack. Returns a URL the
+ * client should navigate to. On success, Stripe redirects back to
+ * `successUrl` + session_id, and the webhook credits the org asynchronously.
+ */
+router.post("/credits/checkout", async (req: Request, res: Response) => {
+  try {
+    const parsed = checkoutBody.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: "Invalid request",
+        errors: parsed.error.flatten(),
+      });
+    }
+
+    if (!req.user?.email) {
+      return res.status(400).json({ message: "User email required for checkout" });
+    }
+
+    const origin = `${req.protocol}://${req.get("host")}`;
+    const { sessionId, url } = await photoCreditService.createCheckoutSession({
+      orgId: req.orgId!,
+      userId: req.user.id,
+      userEmail: req.user.email,
+      packId: parsed.data.packId,
+      successUrl:
+        parsed.data.successUrl ??
+        `${origin}/photos?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancelUrl: parsed.data.cancelUrl ?? `${origin}/photos?checkout=cancelled`,
+    });
+
+    res.json({ sessionId, url });
+  } catch (error: any) {
+    if (error instanceof PackNotConfiguredError) {
+      return res.status(503).json({
+        message: "This credit pack is not available yet — please try a different pack.",
+        packId: error.packId,
+      });
+    }
+    console.error("❌ PHOTO: Failed to create checkout session", error);
+    res.status(500).json({ message: "Failed to start checkout" });
   }
 });
 

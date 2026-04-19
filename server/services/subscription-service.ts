@@ -197,6 +197,19 @@ class SubscriptionService {
   async handleWebhook(signature: string, body: Buffer): Promise<void> {
     const event = stripe.webhooks.constructEvent(body, signature, ENV.stripe.webhookSecret);
 
+    // Photo module's one-time credit pack purchases ride the same webhook
+    // endpoint. Delegate FIRST so photo events never accidentally touch the
+    // subscription handler below — the photo service returns `true` when it
+    // handled the event, `false` otherwise (meaning it's not a photo event).
+    try {
+      const { photoCreditService } = await import('./photo-credit-service');
+      const handled = await photoCreditService.handleWebhookEvent(event);
+      if (handled) return;
+    } catch (err) {
+      console.error('❌ Photo credit webhook handler failed:', err);
+      throw err; // let the outer webhook return 400 so Stripe retries
+    }
+
     switch (event.type) {
       case 'customer.subscription.created':
       case 'customer.subscription.updated': {

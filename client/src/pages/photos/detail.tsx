@@ -20,6 +20,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import type { PhotoAsset, PhotoProject } from "@shared/schema";
+import { CreditsChip } from "@/components/photos/credits-chip";
 
 /**
  * /photos/:id — project detail screen.
@@ -123,7 +124,10 @@ export default function PhotosDetail() {
               {project?.name ?? "Project"}
             </h2>
           </div>
-          {id && project ? <TestQueueButton projectId={id} /> : null}
+          <div className="flex items-center gap-3">
+            <CreditsChip />
+            {id && project ? <TestQueueButton projectId={id} /> : null}
+          </div>
         </div>
       </header>
 
