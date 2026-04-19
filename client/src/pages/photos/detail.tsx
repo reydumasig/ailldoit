@@ -1336,31 +1336,35 @@ function BatchUnlockButton({
     }
     try {
       setPending(true);
-      // Collect current version ids for each merged asset. We fetch the
-      // versions endpoint per asset — cheap, no pagination, and the results
-      // are already cached for most of the page.
-      const versionIds: number[] = [];
-      for (const assetId of candidateAssetIds) {
-        const cached = queryClient.getQueryData<VersionsResponse>([
-          `/api/photo/projects/${projectId}/assets/${assetId}/versions`,
-        ]);
-        const versions =
-          cached?.versions ??
-          (await (async () => {
-            const r = await fetch(
-              `/api/photo/projects/${projectId}/assets/${assetId}/versions`,
-              { headers: await getAuthHeaders(), credentials: "include" }
-            );
-            if (!r.ok) return [] as EditVersion[];
-            return (((await r.json()) as VersionsResponse).versions ?? []);
-          })());
-        const current =
-          versions.find((v) => v.isCurrent) ??
-          versions
-            .slice()
-            .sort((a, b) => b.versionNumber - a.versionNumber)[0];
-        if (current?.cleanOutputUrl) versionIds.push(current.id);
-      }
+      // Collect current version ids for each merged asset. Fetches run in
+      // parallel (Promise.all) — each call is independent and the results
+      // are mostly cache hits on the React Query store anyway.
+      const perAsset = await Promise.all(
+        candidateAssetIds.map(async (assetId) => {
+          const cached = queryClient.getQueryData<VersionsResponse>([
+            `/api/photo/projects/${projectId}/assets/${assetId}/versions`,
+          ]);
+          const versions =
+            cached?.versions ??
+            (await (async () => {
+              const r = await fetch(
+                `/api/photo/projects/${projectId}/assets/${assetId}/versions`,
+                { headers: await getAuthHeaders(), credentials: "include" }
+              );
+              if (!r.ok) return [] as EditVersion[];
+              return (((await r.json()) as VersionsResponse).versions ?? []);
+            })());
+          const current =
+            versions.find((v) => v.isCurrent) ??
+            versions
+              .slice()
+              .sort((a, b) => b.versionNumber - a.versionNumber)[0];
+          return current?.cleanOutputUrl ? current.id : null;
+        })
+      );
+      const versionIds = perAsset.filter(
+        (id): id is number => typeof id === "number"
+      );
 
       if (versionIds.length === 0) {
         toast({

@@ -14,6 +14,7 @@
 import { Router, type Request, type Response } from "express";
 import multer from "multer";
 import archiver from "archiver";
+import { Readable } from "node:stream";
 import { z } from "zod";
 import { authenticateToken } from "../middleware/auth";
 import { organizationService } from "../services/organization-service";
@@ -840,25 +841,51 @@ router.get(
       });
       archive.pipe(res);
 
-      for (const version of plan.alreadyUnlocked) {
-        if (!version.cleanOutputUrl) continue; // belt-and-braces
-        try {
-          const r = await fetch(version.cleanOutputUrl);
-          if (!r.ok || !r.body) {
-            console.warn(
-              `⚠️ PHOTO: Skipping version ${version.id} in zip — fetch ${r.status}`
-            );
-            continue;
-          }
-          // Node-web ReadableStream → Node stream for archiver.append.
-          const entryName = `version_${version.id}_clean.jpg`;
-          const buf = Buffer.from(await r.arrayBuffer());
-          archive.append(buf, { name: entryName });
-        } catch (entryErr: any) {
-          console.warn(
-            `⚠️ PHOTO: Skipping version ${version.id} in zip:`,
-            entryErr?.message
-          );
+      // Fetch and append in bounded-parallel batches. Prior implementation
+      // buffered each file into memory via `arrayBuffer()` and fetched
+      // serially; piping the web-stream straight into archiver keeps
+      // memory bounded, and batching by ZIP_FETCH_CONCURRENCY reduces total
+      // wall-time for large batches while capping connection count to the
+      // storage origin.
+      const ZIP_FETCH_CONCURRENCY = 6;
+      const candidates = plan.alreadyUnlocked.filter((v) => !!v.cleanOutputUrl);
+
+      for (let i = 0; i < candidates.length; i += ZIP_FETCH_CONCURRENCY) {
+        const slice = candidates.slice(i, i + ZIP_FETCH_CONCURRENCY);
+        const fetched = await Promise.all(
+          slice.map(async (version) => {
+            try {
+              const r = await fetch(version.cleanOutputUrl!);
+              if (!r.ok || !r.body) {
+                console.warn(
+                  `⚠️ PHOTO: Skipping version ${version.id} in zip — fetch ${r.status}`
+                );
+                return null;
+              }
+              return {
+                id: version.id,
+                name: `version_${version.id}_clean.jpg`,
+                // Node-web ReadableStream → Node Readable so archiver can
+                // consume it with its own backpressure.
+                stream: Readable.fromWeb(r.body as any),
+              };
+            } catch (entryErr: any) {
+              console.warn(
+                `⚠️ PHOTO: Skipping version ${version.id} in zip:`,
+                entryErr?.message
+              );
+              return null;
+            }
+          })
+        );
+
+        // Append sequentially within the batch — archiver processes one
+        // entry at a time, so sequential append is the natural fit. The
+        // parallelism we care about is kicking off the HTTP fetches
+        // concurrently (above); appending a stream is cheap.
+        for (const entry of fetched) {
+          if (!entry) continue;
+          archive.append(entry.stream, { name: entry.name });
         }
       }
 

@@ -30,8 +30,11 @@
  *    auth plumbing we don't need permanently.
  */
 
-import { config } from "dotenv";
-config();
+// IMPORTANT: dotenv/config must be the very first import. ESM imports are
+// evaluated in order, so loading env vars here ensures downstream modules
+// (photo-credit-service → `new Stripe(ENV.stripe.secretKey)` at module
+// level) see the populated process.env.
+import "dotenv/config";
 
 import Stripe from "stripe";
 import { ENV } from "../config/environment";

@@ -42,7 +42,23 @@ import {
 import {
   InsufficientCreditsError,
   photoCreditService,
+  type DbTx,
 } from "./photo-credit-service";
+
+/**
+ * Narrow check for Postgres unique-violation errors surfaced through
+ * node-postgres. Drizzle rethrows the driver error; `code` 23505 = unique
+ * violation per Postgres spec. Keeping this typed as `unknown` avoids a
+ * runtime dep on `pg`'s error class.
+ */
+function isUniqueViolation(err: unknown): boolean {
+  return (
+    !!err &&
+    typeof err === "object" &&
+    "code" in err &&
+    (err as { code?: unknown }).code === "23505"
+  );
+}
 
 export class NoCleanRenditionError extends Error {
   statusCode = 409;
@@ -79,6 +95,24 @@ export class PhotoDownloadService {
   /**
    * Unlock one version: verify tenancy, debit credits if not already
    * unlocked by this org, return the clean URL.
+   *
+   * Atomicity contract:
+   *   - Tenancy check runs before the transaction — it's read-only and its
+   *     answer doesn't change under concurrent writes (the version's org
+   *     doesn't move).
+   *   - Debit + photo_downloads insert run in ONE db.transaction. Either
+   *     both commit, or neither does. The credit debit can never leave a
+   *     ledger row without a matching receipt.
+   *   - The unique index on (project_id, version_id) turns concurrent
+   *     first-time unlocks into a race where exactly one transaction wins.
+   *     The loser catches 23505, the transaction rolls back (credits
+   *     refunded), and we re-read the winning receipt and return it as a
+   *     free re-unlock.
+   *
+   * The pre-transaction idempotency read is an optimisation (avoids
+   * FOR-UPDATE locking when we already know the receipt exists), not a
+   * correctness guarantee — the unique index is what actually prevents
+   * double-billing.
    */
   async unlock(input: {
     orgId: string;
@@ -98,8 +132,8 @@ export class PhotoDownloadService {
       throw new NoCleanRenditionError(input.versionId);
     }
 
-    // Idempotency: if this org has already paid for this version, return
-    // the receipt without re-debiting. Scoped by project → org because
+    // Fast path: if this org has already paid for this version, return the
+    // receipt without re-debiting. Scoped by project → org because
     // photo_downloads doesn't carry an orgId column, but project does.
     const existing = await this.findExistingDownload(
       input.projectId,
@@ -116,33 +150,64 @@ export class PhotoDownloadService {
       };
     }
 
-    // Charge + receipt atomically. chargeForDownload throws
-    // InsufficientCreditsError on overdraft, which the route surfaces
-    // as 402.
-    const ledger = await photoCreditService.chargeForDownload({
-      orgId: input.orgId,
-      userId: input.userId,
-      amount: CREDITS_PER_UNLOCK,
-      refId: String(input.versionId),
-    });
+    // First-time unlock path. Debit + receipt in one transaction.
+    try {
+      const { download, balanceAfter } = await db.transaction(async (tx) => {
+        const ledger = await photoCreditService.chargeForDownload(
+          {
+            orgId: input.orgId,
+            userId: input.userId,
+            amount: CREDITS_PER_UNLOCK,
+            refId: String(input.versionId),
+          },
+          tx as DbTx
+        );
 
-    const [download] = await db
-      .insert(photoDownloads)
-      .values({
-        projectId: input.projectId,
-        userId: input.userId,
-        versionId: input.versionId,
-        creditsCharged: CREDITS_PER_UNLOCK,
-      })
-      .returning();
+        const [row] = await tx
+          .insert(photoDownloads)
+          .values({
+            projectId: input.projectId,
+            userId: input.userId,
+            versionId: input.versionId,
+            creditsCharged: CREDITS_PER_UNLOCK,
+          })
+          .returning();
 
-    return {
-      version,
-      cleanUrl: version.cleanOutputUrl,
-      charged: true,
-      download,
-      balanceAfter: ledger.balanceAfter,
-    };
+        return { download: row, balanceAfter: ledger.balanceAfter };
+      });
+
+      return {
+        version,
+        cleanUrl: version.cleanOutputUrl,
+        charged: true,
+        download,
+        balanceAfter,
+      };
+    } catch (err) {
+      // Concurrent unlock won the race — the unique index rejected our
+      // insert, the transaction rolled back, and our credit debit was
+      // undone. Re-read the winning receipt and return it as a free
+      // re-unlock, matching the idempotency contract.
+      if (isUniqueViolation(err)) {
+        const winner = await this.findExistingDownload(
+          input.projectId,
+          input.versionId
+        );
+        if (winner) {
+          const balanceAfter = await photoCreditService.getBalance(input.orgId);
+          return {
+            version,
+            cleanUrl: version.cleanOutputUrl,
+            charged: false,
+            download: winner,
+            balanceAfter,
+          };
+        }
+        // If we can't find the winner (shouldn't happen), surface the
+        // original error so the route returns 500 rather than lying.
+      }
+      throw err;
+    }
   }
 
   /**
