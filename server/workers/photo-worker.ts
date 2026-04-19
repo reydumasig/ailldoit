@@ -21,6 +21,7 @@ import type { EditJob } from "@shared/schema";
 import { PHOTO_QUEUE_NAME, type PhotoJobName, type PhotoJobPayload } from "../queues/photo-queue";
 import { createRedisClient } from "../queues/redis-connection";
 import { editJobService } from "../services/edit-job-service";
+import { captureUnknown } from "../observability/sentry";
 import { handlePipelineAuto, type HandlerResult } from "./handlers/pipeline-auto";
 import { handleHdrMerge } from "./handlers/hdr-merge";
 import { handleEnhance } from "./handlers/enhance";
@@ -101,6 +102,17 @@ export function startPhotoWorker(): WorkerHandle {
       `❌ PHOTO WORKER: job ${job?.id} (${job?.name}) failed:`,
       err?.message ?? err
     );
+    // Send failed jobs to Sentry with enough context to debug without
+    // cross-referencing the DB: jobId, jobType, editJobId, attempt count.
+    // BullMQ retries via defaultJobOptions, so a single Sentry issue may
+    // represent N attempts — use the attempt tag to spot flaky vs. busted.
+    captureUnknown(err, {
+      source: "photo_worker",
+      jobId: job?.id,
+      jobName: job?.name,
+      editJobId: job?.data?.editJobId,
+      attemptsMade: job?.attemptsMade,
+    });
   });
 
   worker.on("completed", (job, result) => {
@@ -111,8 +123,10 @@ export function startPhotoWorker(): WorkerHandle {
 
   worker.on("error", (err) => {
     // Connection errors, shutdown-during-work, etc. Don't crash the
-    // process — BullMQ will reconnect.
+    // process — BullMQ will reconnect. But DO send to Sentry so we see
+    // recurring redis flakiness, auth drift, etc.
     console.error("⚠️ PHOTO WORKER: worker error:", err?.message ?? err);
+    captureUnknown(err, { source: "photo_worker", kind: "worker_error" });
   });
 
   return {

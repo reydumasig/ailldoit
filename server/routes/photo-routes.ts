@@ -17,6 +17,7 @@ import archiver from "archiver";
 import { Readable } from "node:stream";
 import { z } from "zod";
 import { authenticateToken } from "../middleware/auth";
+import { setRequestUser } from "../observability/sentry";
 import { organizationService } from "../services/organization-service";
 import { photoProjectService } from "../services/photo-project-service";
 import { photoAssetService } from "../services/photo-asset-service";
@@ -78,6 +79,14 @@ router.use(async (req: Request, res: Response, next) => {
       return res.status(401).json({ message: "Authentication required" });
     }
     req.orgId = await organizationService.resolveActiveOrgId(req.user.id);
+    // Tag Sentry's request scope with orgId — auth middleware already set
+    // userId + email. With both tags, issues in the Sentry dashboard can
+    // be sliced by org (e.g. "show me everything failing for Acme Realty").
+    setRequestUser({
+      userId: req.user.id,
+      email: req.user.email,
+      orgId: req.orgId,
+    });
     next();
   } catch (error: any) {
     console.error("❌ PHOTO: Failed to resolve active org", error);
