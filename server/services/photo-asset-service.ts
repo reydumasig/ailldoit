@@ -272,10 +272,30 @@ export class PhotoAssetService {
       pipelineFileName = `${base}.preview.jpg`;
     }
 
-    // EXIF parsing: exifr reads RAW containers natively, so we prefer the
-    // original buffer (it has the complete camera metadata). JPEG previews
-    // sometimes strip lens info.
-    const exif = await this.parseExif(file.buffer);
+    // EXIF parsing: for RAW, prefer the preview JPEG's EXIF — cameras
+    // copy the full EXIF block into the preview's APP1 segment, which
+    // parses reliably via exifr. The raw container (especially CR3's
+    // ISOBMFF) is less consistent for DateTimeOriginal extraction. For
+    // standard JPEGs, we parse the original directly.
+    //
+    // Fallback: if preview EXIF is missing captureTime, re-parse the
+    // original buffer and prefer any non-null fields from the fallback.
+    // This defends against bodies that ship previews without EXIF (rare,
+    // mostly old firmware).
+    let exif = await this.parseExif(pipelineBuffer);
+    if (isRaw && !exif.captureTime) {
+      const fallback = await this.parseExif(file.buffer);
+      exif = mergeExifPreferringNonNull(exif, fallback);
+    }
+    if (isRaw && !exif.captureTime) {
+      console.warn(
+        `⚠️ PHOTO ASSET: No captureTime parsed from ${file.originalname} — bracket detection will skip this file.`
+      );
+    } else if (isRaw) {
+      console.log(
+        `📷 PHOTO ASSET: ${file.originalname} → captureTime=${exif.captureTime} EV=${exif.exposureBiasEv} ISO=${exif.iso}`
+      );
+    }
 
     // Deterministic, non-guessable storage path. Includes orgId so Firebase
     // Storage rules (future) can match on prefix.
@@ -455,6 +475,37 @@ function stringOrNull(value: unknown): string | null {
   if (value == null) return null;
   const s = String(value).trim();
   return s.length > 0 ? s : null;
+}
+
+/**
+ * Merge two EXIF blobs, preferring `primary` for any field that's non-null
+ * and falling back to `fallback` where primary is null/missing. Used when
+ * the preview JPEG is partial and we need to cover gaps from the original
+ * RAW's metadata.
+ */
+function mergeExifPreferringNonNull(
+  primary: ExtractedExif,
+  fallback: ExtractedExif
+): ExtractedExif {
+  const pick = <K extends keyof ExtractedExif>(key: K): ExtractedExif[K] =>
+    primary[key] != null ? primary[key] : fallback[key];
+  return {
+    captureTime: pick("captureTime"),
+    exposureTimeSec: pick("exposureTimeSec"),
+    exposureBiasEv: pick("exposureBiasEv"),
+    iso: pick("iso"),
+    fNumber: pick("fNumber"),
+    focalLengthMm: pick("focalLengthMm"),
+    cameraMake: pick("cameraMake"),
+    cameraModel: pick("cameraModel"),
+    lensModel: pick("lensModel"),
+    widthPx: pick("widthPx"),
+    heightPx: pick("heightPx"),
+    orientation: pick("orientation"),
+    // Merge raw parses so downstream consumers can still inspect
+    // everything we found.
+    raw: { ...fallback.raw, ...primary.raw },
+  };
 }
 
 export const photoAssetService = new PhotoAssetService();
