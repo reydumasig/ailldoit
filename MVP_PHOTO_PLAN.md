@@ -4,22 +4,27 @@
 **Product owner:** Rey (CEO) — see `PRD.md` for full Founder-Grade PRD
 **Engineering owner:** Claude
 **Target:** Paying-customer MVP launch — end of Month 2 (~8 weeks)
-**Last session:** 2026-04-19 — finished Week 1 → Week 4 end-to-end (infra side of Week 3). See [§8 Updates log](#8-updates-log).
+**Last session:** 2026-04-19 — Weeks 1 → 5 code-complete. Week 5 blocked only on Rey creating Stripe credit-pack SKUs. See [§8 Updates log](#8-updates-log).
 
 > ## 🎯 Where we left off (2026-04-19)
 >
-> Weeks 1, 2, and 4 are code-complete. Week 3's `PhotoModelProvider` abstraction
-> and the `enhance` consumer handler are in place; the remaining Week 3 items
-> (white balance, perspective, sky replace, window pull) are each a new handler
-> plugged into the same provider interface.
+> Weeks 1, 2, 4, and 5 are code-complete. Week 3 is infra-complete (provider +
+> enhance); remaining Week 3 items (white balance, perspective, sky replace,
+> window pull) are each a new handler on the provider interface.
 >
-> **Next open task on the critical path:** white balance — ship gray-world as the
-> CPU default (uses the abstraction), then start the model bakeoff to pin a
-> Replicate version for the ML path.
+> **Next open tasks on the critical path:**
+> 1. **Rey — Stripe dashboard:** create 3 one-time products (Starter $49/100 credits,
+>    Growth $199/500 credits, Agency $699/2000 credits), then fill the
+>    `VITE_STRIPE_PHOTO_{STARTER,GROWTH,AGENCY}_PACK_PRICE_ID` envs (test + live).
+>    Without these the buy-credits modal shows "not configured yet."
+> 2. **Claude — Week 6:** unlock-download endpoint that debits credits via
+>    `photoCreditService.chargeForDownload`, serves the non-watermarked URL,
+>    then batch ZIP export.
+> 3. **Claude — Week 3 tail:** white-balance handler (gray-world CPU default).
 >
 > **Quality gates green:** `npm run check` clean. HDR → enhance chain works
-> end-to-end locally (enhance falls back to Sharp tone curve when
-> `REPLICATE_API_TOKEN` is unset).
+> end-to-end locally. Credit ledger debit is transactional (SELECT FOR UPDATE).
+> Webhook idempotency keyed on stripe_charge_id.
 >
 > **Dev ops reminder:** Cloud Run staging service is provisioned but **off**;
 > Cloud SQL stays off between sessions; local Docker Postgres is the dev DB.
@@ -129,11 +134,11 @@ reuses what works.
 
 ### Month 2 (Weeks 5–8) — Billing + download + MVP launch
 
-**Week 5 — Credit wallet + Stripe wiring**
-- [ ] New Stripe price SKUs (credit pack tiers)
-- [ ] Photo-credit ledger writes on grant, purchase, debit, refund
-- [ ] Org-level balance display
-- [ ] Checkout flow: Stripe Checkout → webhook → ledger credit
+**Week 5 — Credit wallet + Stripe wiring** 🟡 _code-complete 2026-04-19; Stripe dashboard SKUs pending_
+- [x] New Stripe price SKUs (credit pack tiers) _(env scaffolding: `VITE_STRIPE_PHOTO_{STARTER,GROWTH,AGENCY}_PACK_PRICE_ID` + LIVE variants; packs with empty priceId are filtered out of the UI so no broken "buy" buttons). **Action for Rey:** create the 3 one-time products in Stripe dashboard and fill the envs)_
+- [x] Photo-credit ledger writes on grant, purchase, debit, refund _(`photoCreditService` — append-only rows, `balanceAfter` cached for O(1) reads; debit uses `SELECT ... FOR UPDATE` inside a transaction to prevent concurrent overdraft)_
+- [x] Org-level balance display _(`GET /api/photo/credits/balance` + `CreditsChip` in both `/photos` and `/photos/:id` headers; low/zero balance tinted amber/red as a top-up nudge)_
+- [x] Checkout flow: Stripe Checkout → webhook → ledger credit _(one-time `mode:payment` Checkout session with orgId/userId/packId metadata; webhook delegates via `subscription-service.handleWebhook` → `photoCreditService.handleWebhookEvent`; idempotent on `stripe_charge_id` so Stripe retries don't double-grant; priceId verified against catalog before grant so tampered metadata can't inflate credits)_
 
 **Week 6 — Pay-on-download + delivery**
 - [ ] Unlock-download endpoint (debits credits, returns non-watermarked URL)
@@ -247,6 +252,22 @@ processing success rate
   SIGTERM-safe graceful shutdown. Simplified Mertens HDR fusion handler
   (~200ms for 5 exposures, 1920px preview, watermark SVG composite).
   Groups + merged assets + editVersions persisted atomically.
+- **2026-04-19 — Week 5 code-complete.** Photo-credit wallet shipped end to
+  end: `photo-credit-service` with append-only ledger, transactional debit
+  (SELECT FOR UPDATE prevents concurrent overdraft), idempotent purchase
+  grants (keyed on `stripe_charge_id`), Stripe Checkout session creation
+  (mode=payment, not subscription — deliberately separate from the
+  ad-generator's recurring SKUs). Webhook delegates via
+  `subscription-service.handleWebhook` (photo service inspects
+  `metadata.source=photo_credit_pack` and either claims the event or
+  returns false so subscription logic runs). Route endpoints: `GET
+  /credits/packs`, `GET /credits/balance`, `GET /credits/ledger`, `POST
+  /credits/checkout`. Client: `CreditsChip` component in both `/photos` and
+  `/photos/:id` headers (amber tint <10, red tint at 0), `BuyCreditsModal`
+  with pack picker → Stripe redirect, post-redirect balance invalidation at
+  1.5s + 5s to catch slow webhooks. **Open on critical path:** Rey creates
+  the 3 one-time-price products in Stripe dashboard and sets the env vars;
+  then Week 6 unlock-download endpoint + ZIP export.
 - **2026-04-19 — Week 3 infra + Week 4 shipped.** Built `PhotoModelProvider`
   abstraction (`server/services/photo-providers/*`) with Replicate + local
   fallback providers, selected by env. Added `enhance` consumer handler with a

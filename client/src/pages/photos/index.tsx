@@ -13,6 +13,10 @@ import {
   Loader2,
 } from "lucide-react";
 import type { PhotoProject } from "@shared/schema";
+import { CreditsChip } from "@/components/photos/credits-chip";
+import { useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 
 /**
  * Photos — real-estate AI photo editing module (landing page).
@@ -41,6 +45,40 @@ export default function PhotosIndex() {
   const projects = data?.projects ?? [];
   const hasProjects = projects.length > 0;
 
+  // Post-checkout redirect handling. Stripe sends users back to
+  // /photos?checkout=success&session_id=cs_... — invalidate the balance
+  // query so the chip updates once the webhook has credited the org. We
+  // strip the query params so a refresh doesn't re-trigger the toast-y UX.
+  const [location, setLocation] = useLocation();
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const checkoutStatus = params.get("checkout");
+    if (!checkoutStatus) return;
+    if (checkoutStatus === "success") {
+      // The webhook may land slightly after the redirect — give it a beat,
+      // then refetch. A second invalidation after a longer delay catches
+      // the slow-webhook case without blocking the first paint.
+      setTimeout(
+        () =>
+          queryClient.invalidateQueries({
+            queryKey: ["/api/photo/credits/balance"],
+          }),
+        1500
+      );
+      setTimeout(
+        () =>
+          queryClient.invalidateQueries({
+            queryKey: ["/api/photo/credits/balance"],
+          }),
+        5000
+      );
+    }
+    // Clean the URL.
+    setLocation("/photos");
+  }, [location, queryClient, setLocation]);
+
   return (
     <div className="flex-1 overflow-hidden">
       {/* Header */}
@@ -53,6 +91,7 @@ export default function PhotosIndex() {
             </p>
           </div>
           <div className="flex items-center space-x-4">
+            <CreditsChip />
             <Link href="/photos/new">
               <Button className="bg-ailldoit-accent hover:bg-ailldoit-accent/90 text-white hover:shadow-lg">
                 <Plus className="w-4 h-4 mr-2" />

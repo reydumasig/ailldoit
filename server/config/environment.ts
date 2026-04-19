@@ -5,8 +5,15 @@ export interface EnvironmentConfig {
   stripe: {
     secretKey: string;
     publicKey: string;
+    // Ad-generator subscription SKUs (recurring plans)
     starterPriceId: string;
     growthPriceId: string;
+    // Photo module credit-pack SKUs (one-time Checkout purchases).
+    // Packs are deliberately separate from the subscription SKUs — photo billing
+    // is pay-per-image via credits, not a recurring plan.
+    photoStarterPackPriceId: string;   // starter pack (e.g. 100 credits)
+    photoGrowthPackPriceId: string;    // growth  pack (e.g. 500 credits)
+    photoAgencyPackPriceId: string;    // agency  pack (e.g. 2000 credits)
     webhookSecret: string;
   };
 }
@@ -33,14 +40,27 @@ export function getEnvironmentConfig(): EnvironmentConfig {
       publicKey: useTestKeys 
         ? process.env.VITE_STRIPE_PUBLIC_KEY! 
         : process.env.VITE_STRIPE_LIVE_PUBLIC_KEY!,
-      starterPriceId: useTestKeys 
-        ? process.env.VITE_STRIPE_STARTER_PRICE_ID! 
+      starterPriceId: useTestKeys
+        ? process.env.VITE_STRIPE_STARTER_PRICE_ID!
         : process.env.VITE_STRIPE_LIVE_STARTER_PRICE_ID!,
-      growthPriceId: useTestKeys 
-        ? process.env.VITE_STRIPE_GROWTH_PRICE_ID! 
+      growthPriceId: useTestKeys
+        ? process.env.VITE_STRIPE_GROWTH_PRICE_ID!
         : process.env.VITE_STRIPE_LIVE_GROWTH_PRICE_ID!,
-      webhookSecret: useTestKeys 
-        ? process.env.STRIPE_WEBHOOK_SECRET! 
+      // Photo pack price IDs — fall back to "" when unset so the service can
+      // detect "packs not configured" and surface a friendly error instead of
+      // crashing at startup. Expect the three envs to be filled in once Rey
+      // has created the SKUs in Stripe dashboard.
+      photoStarterPackPriceId: useTestKeys
+        ? (process.env.VITE_STRIPE_PHOTO_STARTER_PACK_PRICE_ID ?? "")
+        : (process.env.VITE_STRIPE_LIVE_PHOTO_STARTER_PACK_PRICE_ID ?? ""),
+      photoGrowthPackPriceId: useTestKeys
+        ? (process.env.VITE_STRIPE_PHOTO_GROWTH_PACK_PRICE_ID ?? "")
+        : (process.env.VITE_STRIPE_LIVE_PHOTO_GROWTH_PACK_PRICE_ID ?? ""),
+      photoAgencyPackPriceId: useTestKeys
+        ? (process.env.VITE_STRIPE_PHOTO_AGENCY_PACK_PRICE_ID ?? "")
+        : (process.env.VITE_STRIPE_LIVE_PHOTO_AGENCY_PACK_PRICE_ID ?? ""),
+      webhookSecret: useTestKeys
+        ? process.env.STRIPE_WEBHOOK_SECRET!
         : process.env.STRIPE_LIVE_WEBHOOK_SECRET!
     }
   };
