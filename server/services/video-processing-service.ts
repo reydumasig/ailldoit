@@ -384,7 +384,7 @@ export class VideoProcessingService {
       console.log(`📸 VIDEO PROCESSING: Extracting last frame from ${videoPath}`);
 
       // First, get video duration
-      ffmpeg.ffprobe(videoPath, (err, metadata) => {
+      ffmpeg.ffprobe(videoPath, (err: Error | null, metadata: any) => {
         if (err) {
           console.error(`❌ VIDEO PROCESSING: Failed to probe video:`, err);
           reject(err);

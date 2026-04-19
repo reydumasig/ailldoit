@@ -13,6 +13,9 @@ import PublishingResults from "@/pages/publishing-results";
 import OAuthConnections from "@/pages/oauth-connections-enhanced";
 import TestLearning from "@/pages/test-learning";
 import SuperAdminDashboard from "@/pages/SuperAdminDashboard";
+import PhotosIndex from "@/pages/photos";
+import PhotosNew from "@/pages/photos/new";
+import PhotosDetail from "@/pages/photos/detail";
 import Login from "@/pages/auth/login";
 import Register from "@/pages/auth/register";
 import Sidebar from "@/components/sidebar";
@@ -32,6 +35,10 @@ function AuthenticatedRouter() {
           <Route path="/connections" component={OAuthConnections} />
           <Route path="/test-learning" component={TestLearning} />
           <Route path="/superadmin" component={SuperAdminDashboard} />
+          {/* Photo module — /photos/new must come before /photos/:id */}
+          <Route path="/photos" component={PhotosIndex} />
+          <Route path="/photos/new" component={PhotosNew} />
+          <Route path="/photos/:id" component={PhotosDetail} />
           <Route component={NotFound} />
         </Switch>
       </div>

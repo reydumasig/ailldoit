@@ -47,7 +47,21 @@ export default function PublishingResults() {
   
   const campaignId = location.split("/")[2];
 
-  const { data: simulations, isLoading, refetch } = useQuery({
+  type SimulationMetrics = {
+    views?: number;
+    likes?: number;
+    comments?: number;
+    shares?: number;
+  };
+  type PublishingSimulation = {
+    id: number;
+    platform: string;
+    status: string;
+    metrics?: SimulationMetrics;
+    [key: string]: any;
+  };
+
+  const { data: simulations, isLoading, refetch } = useQuery<PublishingSimulation[]>({
     queryKey: [`/api/campaigns/${campaignId}/simulations`],
     enabled: !!campaignId,
     refetchInterval: autoRefresh ? 10000 : false, // Auto-refresh every 10 seconds

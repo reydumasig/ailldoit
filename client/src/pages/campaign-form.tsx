@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { insertCampaignSchema } from "@shared/schema";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, getAuthHeaders } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
 import { ArrowLeft, Wand2, Video, Image as ImageIcon, Lightbulb, Sparkles, Film } from "lucide-react";
@@ -43,6 +43,7 @@ const campaignTypes = [
   { id: "shortVideo", name: "Short Video", icon: Video },
   { id: "longVideo", name: "Long Video", icon: Film },
   { id: "image", name: "Image", icon: ImageIcon },
+  { id: "realEstateEdit", name: "Real Estate HDR", icon: Wand2 },
 ];
 
 export default function CampaignForm() {
@@ -51,6 +52,8 @@ export default function CampaignForm() {
   const queryClient = useQueryClient();
   const [selectedPlatform, setSelectedPlatform] = useState("tiktok");
   const [selectedCampaignType, setSelectedCampaignType] = useState("shortVideo");
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
   const [showTemplateSelector, setShowTemplateSelector] = useState(false);
   const [showPromptSelector, setShowPromptSelector] = useState(false);
 
@@ -201,28 +204,74 @@ export default function CampaignForm() {
     createCampaign.mutate(campaignData);
   };
 
-  const handleSubmitClick = (e: React.MouseEvent) => {
+  const handleSubmitClick = async (e: React.MouseEvent) => {
     console.log('🖱️ CREATE CAMPAIGN BUTTON CLICKED - This should be the ONLY trigger for campaign creation');
     e.preventDefault();
 
     // Check form validity
     const formData = form.getValues();
-    console.log('📋 Current form values:', formData);
-    console.log('🔍 Form errors:', form.formState.errors);
+    
+    if (selectedCampaignType === 'realEstateEdit') {
+      if (selectedFiles.length === 0) {
+        toast({
+          title: "Images Required",
+          description: "Please upload at least one property image.",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      setIsUploading(true);
+      try {
+        const uploadData = new FormData();
+        selectedFiles.forEach(file => {
+          uploadData.append('images', file);
+        });
 
-    // Only proceed if we have a valid brief
-    if (!formData.brief || formData.brief.trim().length < 10) {
-      toast({
-        title: "Brief Required",
-        description: "Please enter a product brief of at least 10 characters",
-        variant: "destructive",
-      });
-      return;
+        const authHeaders = await getAuthHeaders();
+        const uploadRes = await fetch('/api/upload', {
+          method: 'POST',
+          headers: authHeaders, // Don't set Content-Type, browser will set it to multipart/form-data with boundary
+          body: uploadData
+        });
+
+        if (!uploadRes.ok) {
+          throw new Error('Failed to upload source images');
+        }
+
+        const data = await uploadRes.json();
+        
+        // Temporarily encode source images directly into the beginning of the brief
+        const encodedSources = data.urls ? `\n\n[SOURCE_ASSETS: ${data.urls.join(',')}]` : '';
+        formData.brief = (formData.brief || 'Real Estate Property HDR Enhancement') + encodedSources;
+        
+      } catch (error) {
+        console.error('File Upload Error:', error);
+        toast({
+          title: "Upload Failed",
+          description: "Could not upload images to server.",
+          variant: "destructive",
+        });
+        setIsUploading(false);
+        return;
+      }
+      setIsUploading(false);
+    } else {
+      // Only proceed if we have a valid brief for non-real estate campaigns
+      if (!formData.brief || formData.brief.trim().length < 10) {
+        toast({
+          title: "Brief Required",
+          description: "Please enter a product brief of at least 10 characters",
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
     console.log('🚀 Form validation passed, triggering campaign creation...');
-    // Manually trigger form submission
-    form.handleSubmit(onSubmit)(e);
+    // Trigger submission manually with potentially updated formData
+    // form.handleSubmit(onSubmit) uses internal form state, so we override onSubmit manually
+    onSubmit(formData);
   };
 
   const generatePreview = () => {
@@ -351,18 +400,46 @@ export default function CampaignForm() {
                               </div>
                             </div>
                             <FormControl>
-                              <Textarea
-                                placeholder="Describe your product, target audience, and campaign goals... Or click 'AI Templates' for smart suggestions!"
-                                className="h-32 resize-none"
-                                {...field}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                                    console.log('⌨️ Ctrl+Enter detected - NOT submitting form automatically');
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                  }
-                                }}
-                              />
+                              <div className="flex flex-col gap-4">
+                                <Textarea
+                                  placeholder="Describe your product, target audience, and campaign goals... Or click 'AI Templates' for smart suggestions!"
+                                  className="h-32 resize-none"
+                                  {...field}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                                      console.log('⌨️ Ctrl+Enter detected - NOT submitting form automatically');
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                    }
+                                  }}
+                                />
+                                {selectedCampaignType === 'realEstateEdit' && (
+                                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 flex flex-col items-center justify-center relative bg-gray-50/50 hover:bg-gray-50 transition-colors">
+                                    <input 
+                                      type="file" 
+                                      multiple 
+                                      accept="image/*"
+                                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                      onChange={(e) => {
+                                        if (e.target.files) {
+                                          setSelectedFiles(Array.from(e.target.files));
+                                        }
+                                      }}
+                                    />
+                                    <ImageIcon className="text-gray-400 w-8 h-8 mb-2" />
+                                    <div className="text-sm font-semibold text-gray-700">
+                                      {selectedFiles.length > 0 
+                                        ? `${selectedFiles.length} photos selected` 
+                                        : 'Upload HDR Brackets'}
+                                    </div>
+                                    <div className="text-xs text-gray-500 mt-1 max-w-sm text-center">
+                                      {selectedFiles.length > 0 
+                                        ? selectedFiles.map(f => f.name).join(', ')
+                                        : 'Drag & drop 3-5 exposure photos (.jpg, .png)'}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -477,12 +554,12 @@ export default function CampaignForm() {
                   <Button
                     onClick={handleSubmitClick}
                     className="w-full bg-ailldoit-accent hover:bg-ailldoit-accent/90 text-white hover:shadow-lg"
-                    disabled={createCampaign.isPending}
+                    disabled={createCampaign.isPending || isUploading}
                   >
-                    {createCampaign.isPending ? (
+                    {createCampaign.isPending || isUploading ? (
                       <>
                         <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
-                        {isEditing ? "Updating Campaign..." : "Creating Campaign..."}
+                        {isUploading ? "Uploading HDR Brackets..." : isEditing ? "Updating Campaign..." : "Creating Campaign..."}
                       </>
                     ) : (
                       <>

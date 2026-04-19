@@ -21,7 +21,12 @@ export default function Dashboard() {
     queryKey: ["/api/campaigns"],
   });
 
-  const { data: stats, isLoading: statsLoading } = useQuery({
+  const { data: stats, isLoading: statsLoading } = useQuery<{
+    totalCampaigns?: number;
+    activeCampaigns?: number;
+    avgCTR?: string;
+    roi?: string;
+  }>({
     queryKey: ["/api/dashboard/stats"],
   });
 

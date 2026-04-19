@@ -2,15 +2,16 @@ import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
-import { 
-  Wand2, 
-  BarChart3, 
-  Megaphone, 
+import {
+  Wand2,
+  BarChart3,
+  Megaphone,
   Settings,
   User,
   LogOut,
   Link2,
-  Brain
+  Brain,
+  Camera,
 } from "lucide-react";
 
 export default function Sidebar() {
@@ -27,6 +28,7 @@ export default function Sidebar() {
 
   const navItems = [
     { href: "/", label: "Dashboard", icon: BarChart3 },
+    { href: "/photos", label: "Photos", icon: Camera },
     { href: "/campaigns", label: "Campaigns", icon: Megaphone },
     { href: "/connections", label: "Platforms", icon: Link2 },
     { href: "/test-learning", label: "AI Learning", icon: Brain },

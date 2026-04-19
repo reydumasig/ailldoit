@@ -27,7 +27,7 @@ export const requireSuperAdmin = async (req: AuthenticatedRequest, res: Response
     }
 
     // Add user role to request for downstream use
-    req.user.role = user.role;
+    req.user.role = user.role ?? undefined;
     next();
   } catch (error) {
     console.error('Super admin check error:', error);
@@ -51,7 +51,7 @@ export const requireAdmin = async (req: AuthenticatedRequest, res: Response, nex
       return res.status(403).json({ message: 'Admin access required' });
     }
 
-    req.user.role = user.role;
+    req.user.role = user.role ?? undefined;
     next();
   } catch (error) {
     console.error('Admin check error:', error);

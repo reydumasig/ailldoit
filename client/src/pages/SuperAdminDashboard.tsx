@@ -105,10 +105,7 @@ export default function SuperAdminDashboard() {
   // Update user mutation
   const updateUserMutation = useMutation({
     mutationFn: async ({ userId, updates }: { userId: string; updates: any }) => {
-      return await apiRequest(`/api/admin/users/${userId}`, {
-        method: 'PATCH',
-        body: JSON.stringify(updates),
-      });
+      return await apiRequest('PATCH', `/api/admin/users/${userId}`, updates);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });

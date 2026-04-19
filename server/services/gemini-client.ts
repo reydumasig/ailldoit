@@ -134,7 +134,7 @@ export async function generateVideos(
   model: string = 'veo-3.0-generate-preview',
   download: boolean = true,
   options?: VideoGenerationOptions
-) {
+): Promise<string[]> {
 
   const config = {
     aspectRatio: options?.aspectRatio || "16:9",
@@ -275,7 +275,10 @@ export async function generateVideos(
 
   }
 
-  return operation.response?.generatedVideos || []
+  // Non-download path: return the temporary URIs from the generated videos
+  return (operation.response?.generatedVideos ?? [])
+    .map((v) => v?.video?.uri)
+    .filter((uri): uri is string => Boolean(uri));
 
 }
 
@@ -292,8 +295,8 @@ export async function uploadFileToGemini(
     const client = getDirectClient();
     
     const file = await client.files.upload({
-      filePath: filePath,
-      mimeType: mimeType
+      file: filePath,
+      config: { mimeType },
     });
     
     console.log(`✅ GEMINI FILES: File uploaded successfully: ${file.name}`);
