@@ -453,6 +453,24 @@ export class PhotoCreditService {
     console.log(
       `💳 PHOTO_CREDITS: granted ${pack.credits} to org=${orgId} (session=${session.id}, ledger=${row.id}, balanceAfter=${row.balanceAfter})`
     );
+    // PostHog funnel event — fires once per unique Stripe charge (the
+    // recordPurchase idempotency guard above makes re-delivered webhooks
+    // no-op, so tracking here will not double-count).
+    try {
+      const { track } = await import("../observability/posthog");
+      track("photo_credits_purchased", {
+        userId: userId ?? null,
+        orgId,
+        props: {
+          credits: pack.credits,
+          pack_id: pack.id,
+          stripe_session_id: session.id,
+          balance_after: row.balanceAfter,
+        },
+      });
+    } catch (err: any) {
+      console.warn("⚠️ POSTHOG: photo_credits_purchased emit failed:", err?.message);
+    }
     return true;
   }
 

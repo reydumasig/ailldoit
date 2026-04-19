@@ -12,6 +12,7 @@ import { auth } from '@/config/firebase';
 import type { Auth } from 'firebase/auth';
 import { apiRequest } from '@/lib/queryClient';
 import { identifyUser } from '@/lib/sentry';
+import { identifyUser as identifyPosthogUser } from '@/lib/posthog';
 
 interface AuthUser {
   id: string;
@@ -123,6 +124,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               userId: userData.id,
               email: userData.email,
             });
+            identifyPosthogUser({
+              userId: userData.id,
+              email: userData.email,
+            });
           } catch (fetchError: any) {
             clearTimeout(timeoutId);
             if (fetchError.name === 'AbortError') {
@@ -135,6 +140,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           console.log('👤 No Firebase user, showing login');
           setUser(null);
           identifyUser({ userId: null, email: null });
+          identifyPosthogUser({ userId: null, email: null });
         }
       } catch (error: any) {
         console.error('❌ Auth state change error:', error);
@@ -235,6 +241,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(null);
       setLoading(false);
       identifyUser({ userId: null, email: null });
+      identifyPosthogUser({ userId: null, email: null });
       console.log('✅ User signed out successfully');
     } catch (error) {
       console.error('❌ Sign out error:', error);

@@ -1,11 +1,15 @@
 import { createRoot } from "react-dom/client";
 import { initSentry, Sentry, isSentryEnabled } from "./lib/sentry";
+import { initPostHog } from "./lib/posthog";
 import App from "./App";
 import "./index.css";
 
 // Init Sentry before any component mounts so render-time exceptions are
 // caught. Safe to call with no DSN — becomes a noop.
 initSentry();
+// PostHog client-side init. Off-by-default when VITE_POSTHOG_KEY is unset
+// so local dev doesn't pollute prod funnels.
+initPostHog();
 
 const root = createRoot(document.getElementById("root")!);
 

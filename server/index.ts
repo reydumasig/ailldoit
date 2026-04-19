@@ -9,6 +9,10 @@ config();
 // miss that patch. Keep this import/init at the very top of server boot.
 import { initSentry, Sentry, isSentryEnabled } from "./observability/sentry";
 initSentry();
+// PostHog init is order-insensitive (no network patching), but we start it
+// here so the funnel is live before the first route handler runs.
+import { initPostHog, shutdownPostHog } from "./observability/posthog";
+initPostHog();
 
 import express from "express";
 import http from "http";
@@ -156,6 +160,15 @@ app.use((req, res, next) => {
       await photoWorker?.stop();
     } catch (err: any) {
       console.error("⚠️ SERVER: worker stop errored:", err?.message ?? err);
+    }
+    // Flush PostHog before the process exits — Cloud Run gives us ~10s
+    // between SIGTERM and SIGKILL and we'd otherwise lose the last batch
+    // of funnel events (which is exactly the user whose session is being
+    // disrupted by the scale-down — the interesting one).
+    try {
+      await shutdownPostHog();
+    } catch (err: any) {
+      console.error("⚠️ SERVER: posthog shutdown errored:", err?.message ?? err);
     }
     httpServer.close(() => {
       console.log("👋 SERVER: closed HTTP server, bye");
