@@ -85,6 +85,57 @@ export class BracketDetectionService {
         )
       );
 
+    console.log(
+      `\n🔎 BRACKET DETECT: project=${projectId} totalAssets=${assets.length} windowSec=${TIME_WINDOW_SEC}`
+    );
+
+    // Per-asset diagnostic table — dumped to server logs so "re-detect"
+    // becomes its own debugging tool.
+    const rawRows = assets.map((a) => {
+      const exif = a.exifData as {
+        captureTime?: string | null;
+        exposureBiasEv?: number | null;
+        exposureTimeSec?: number | null;
+      } | null;
+      return {
+        id: a.id,
+        fileName: a.fileName,
+        captureTime: exif?.captureTime ?? null,
+        exposureBiasEv: exif?.exposureBiasEv ?? null,
+        exposureTimeSec: exif?.exposureTimeSec ?? null,
+      };
+    });
+
+    const withTime = rawRows.filter((r) => r.captureTime);
+    const withoutTime = rawRows.filter((r) => !r.captureTime);
+
+    if (withoutTime.length > 0) {
+      console.log(
+        `   ⚠️  ${withoutTime.length}/${assets.length} assets have NO captureTime — they will never cluster:`
+      );
+      for (const r of withoutTime) {
+        console.log(`      · id=${r.id} file=${r.fileName} EV=${r.exposureBiasEv}`);
+      }
+    }
+
+    if (withTime.length > 0) {
+      const sorted = [...withTime].sort(
+        (a, b) => +new Date(a.captureTime!) - +new Date(b.captureTime!)
+      );
+      console.log(`   📷 ${withTime.length} assets with captureTime (sorted, with gap):`);
+      let prevMs: number | null = null;
+      for (const r of sorted) {
+        const ms = +new Date(r.captureTime!);
+        const gap = prevMs != null ? (ms - prevMs) / 1000 : null;
+        const gapStr =
+          gap == null ? "—" : `+${gap.toFixed(2)}s${gap <= TIME_WINDOW_SEC ? " ✓" : " ✗ (too far)"}`;
+        console.log(
+          `      · ${r.fileName} @ ${r.captureTime} EV=${r.exposureBiasEv} gap=${gapStr}`
+        );
+        prevMs = ms;
+      }
+    }
+
     const clusterable = assets
       .map((a) => {
         const exif = a.exifData as {
@@ -106,6 +157,10 @@ export class BracketDetectionService {
 
     const clusters = this.cluster(clusterable);
     const bracketClusters = clusters.filter((c) => c.length >= 2);
+
+    console.log(
+      `   🧮 clusters=${clusters.length} bracketClusters(≥2)=${bracketClusters.length} — ${bracketClusters.map((c) => c.length).join("+") || "none"}`
+    );
 
     // Atomic rebuild. We take the "delete + re-insert" approach because
     // bracket groups have no user-editable state yet (no confirmation,
