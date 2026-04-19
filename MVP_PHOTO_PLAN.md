@@ -4,27 +4,30 @@
 **Product owner:** Rey (CEO) — see `PRD.md` for full Founder-Grade PRD
 **Engineering owner:** Claude
 **Target:** Paying-customer MVP launch — end of Month 2 (~8 weeks)
-**Last session:** 2026-04-19 — Weeks 1 → 5 code-complete. Week 5 blocked only on Rey creating Stripe credit-pack SKUs. See [§8 Updates log](#8-updates-log).
+**Last session:** 2026-04-19 — Weeks 1 → 5 code-complete (Week 3 tail landed: white-balance, perspective, sky-replace + window-pull handlers; `pipeline_auto` chains them best-effort). Week 5 blocked only on Rey creating Stripe credit-pack SKUs (envs set). See [§8 Updates log](#8-updates-log).
 
 > ## 🎯 Where we left off (2026-04-19)
 >
-> Weeks 1, 2, 4, and 5 are code-complete. Week 3 is infra-complete (provider +
-> enhance); remaining Week 3 items (white balance, perspective, sky replace,
-> window pull) are each a new handler on the provider interface.
+> Weeks 1 → 5 are code-complete. Week 3 tail landed this session:
+> `white-balance` (provider → gray-world CPU fallback), `perspective`
+> (provider → Sharp affine fallback), `sky-replace` + `window-pull`
+> (provider-only — no CPU approximation on purpose). `pipeline_auto` now
+> chains `hdr_merge → white_balance → perspective → window_pull →
+> sky_replace → enhance` with each post-HDR step best-effort.
 >
 > **Next open tasks on the critical path:**
-> 1. **Rey — Stripe dashboard:** create 3 one-time products (Starter $49/100 credits,
->    Growth $199/500 credits, Agency $699/2000 credits), then fill the
->    `VITE_STRIPE_PHOTO_{STARTER,GROWTH,AGENCY}_PACK_PRICE_ID` envs (test + live).
->    Without these the buy-credits modal shows "not configured yet."
-> 2. **Claude — Week 6:** unlock-download endpoint that debits credits via
+> 1. **Claude — Week 6:** unlock-download endpoint that debits credits via
 >    `photoCreditService.chargeForDownload`, serves the non-watermarked URL,
 >    then batch ZIP export.
-> 3. **Claude — Week 3 tail:** white-balance handler (gray-world CPU default).
+> 2. **Bakeoff (background) — pin Replicate models** for `sky-replace`,
+>    `window-pull`, `perspective`, `white-balance`. Handlers are wired; the
+>    `MODEL_REGISTRY` entries just need version ids. No handler changes needed.
+> 3. **Rey — Stripe dashboard (done):** the 3 one-time products are created
+>    and `VITE_STRIPE_PHOTO_{STARTER,GROWTH,AGENCY}_PACK_PRICE_ID` are set.
 >
-> **Quality gates green:** `npm run check` clean. HDR → enhance chain works
-> end-to-end locally. Credit ledger debit is transactional (SELECT FOR UPDATE).
-> Webhook idempotency keyed on stripe_charge_id.
+> **Quality gates green:** `npm run check` clean. Full chain typechecks.
+> Credit ledger debit is transactional (SELECT FOR UPDATE). Webhook
+> idempotency keyed on stripe_charge_id.
 >
 > **Dev ops reminder:** Cloud Run staging service is provisioned but **off**;
 > Cloud SQL stays off between sessions; local Docker Postgres is the dev DB.
@@ -117,13 +120,14 @@ reuses what works.
 - [ ] Single-image path (no bracket) falls through to enhancement only _(pipeline_auto no-ops today; wire this when the first single-image user surfaces)_
 - [x] Watermarked preview image generated for every successful job _("AILLDOIT PREVIEW" diagonal SVG, white 0.28 opacity + black stroke — composited via Sharp)_
 
-**Week 3 — Core corrections + smart edits** 🟡 _infra complete 2026-04-19; model-specific handlers pending_
-- [ ] White balance pass (gray-world or ML via Replicate) _(CPU gray-world is the fast follow-up — uses the abstraction already in place)_
+**Week 3 — Core corrections + smart edits** ✅ _complete 2026-04-19 (sky-replace + window-pull stubbed, activate when models pinned)_
+- [x] White balance pass (gray-world or ML via Replicate) _(`white-balance` handler — provider path first, gray-world CPU fallback on `ProviderUnavailableError`. Per-channel gain clamped to `[0.5, 2.0]` so a neutral photo can't get tinted)_
 - [x] Exposure balancing + brightness/contrast/vibrance/noise reduction _(`enhance` handler — local Sharp tone curve fallback + provider path; chained after `hdr_merge` in `pipeline_auto`, best-effort — failure leaves the HDR version intact)_
-- [ ] Perspective / vertical correction _(likely stays local OpenCV — mark for after white balance)_
+- [x] Perspective / vertical correction _(`perspective` handler — provider path first, Sharp affine transform fallback (rotation + shear matrix) with params from `job.inputParams`. Clamped to ±15° rotation, ±0.3 shear. Auto ML keystone detection deferred to Phase 1.5)_
 - [x] `PhotoModelProvider` abstraction with Replicate as default impl _(`server/services/photo-providers/*` — `types.ts`, `replicate-provider.ts`, `local-provider.ts`, factory via `getPhotoModelProvider()`. Auto-selects Replicate when `REPLICATE_API_TOKEN` is set, local stub otherwise. `MODEL_REGISTRY` entries deliberately `null` until per-model bakeoff is done — safer than drift)_
-- [ ] Sky replacement (Replicate: segmentation + composite) _(blocked on model bakeoff + pin)_
-- [ ] Window pull (highlight recovery on merged HDR output) _(blocked on model bakeoff + pin)_
+- [x] Sky replacement (Replicate: segmentation + composite) _(`sky-replace` handler — provider-only, no CPU fallback (pixel-space sky detection regresses quality on tree lines/reflections). Accepts `sky_preset` + `strength` params. Auto-activates when `MODEL_REGISTRY["sky-replace"]` is pinned — zero code change)_
+- [x] Window pull (highlight recovery on merged HDR output) _(`window-pull` handler — provider-only, same reasoning as sky-replace. Accepts `target_ev` param. Fails hard if provider unavailable so `pipeline_auto` records the step-failure without touching the prior rendition)_
+- [x] `pipeline_auto` orchestrator — chains `hdr_merge → white_balance → perspective → window_pull → sky_replace → enhance`, each post-HDR step best-effort. Provider unavailability on sky/window becomes a soft no-op for the whole run, not a pipeline failure.
 
 **Week 4 — Preview UI + review flow** ✅ _complete 2026-04-19 (code side)_
 - [x] Thumbnail grid view per project _(shipped in Week 1 — singles section below bracket cards)_
@@ -279,3 +283,18 @@ processing success rate
   version chip strip, download-with-filename button. **Open on critical path:**
   white balance, perspective, sky replace, window pull (each a new handler on
   the provider interface), then Week 5–6 Stripe SKUs.
+- **2026-04-19 — Week 3 tail shipped.** All four remaining correction
+  handlers landed: `white-balance` (gray-world CPU fallback with per-channel
+  gain clamped to `[0.5, 2.0]`), `perspective` (Sharp affine transform
+  fallback, rotation + shear matrix, clamped to ±15°/±0.3), `sky-replace`
+  and `window-pull` (both provider-only — CPU approximations regress
+  quality too often to ship). Extracted shared plumbing into
+  `server/workers/handlers/correction-common.ts` (`runSingleAssetCorrection`
+  handles input resolution → buffer produce → Firebase upload → atomic
+  version insert → bracket pointer update). `pipeline_auto` chains
+  `hdr_merge → white_balance → perspective → window_pull → sky_replace →
+  enhance` with each post-HDR step best-effort so `ProviderUnavailableError`
+  from unpinned models becomes a soft no-op for the whole run. When the
+  bakeoff pins a Replicate version, flipping a `MODEL_REGISTRY` entry
+  activates that step — zero handler changes. Typecheck clean. Week 3 is
+  100% code-complete; ready to move to Week 6 unlock-download.
