@@ -371,14 +371,15 @@ function UploadDropzone({ projectId, assetCount }: { projectId: string; assetCou
           {assetCount === 0 ? "Upload photos" : "Add more photos"}
         </h4>
         <p className="text-ailldoit-muted max-w-md text-sm mb-4">
-          Drag JPEG brackets (3–5 exposures per scene) or single photos.
-          We'll parse EXIF and stage them for the edit pipeline.
+          Drag JPEG or RAW brackets (3–5 exposures per scene) or single photos.
+          Supports CR3, DNG, NEF, ARW, RAF — we'll extract the camera
+          preview for fast edits and keep the RAW archived.
         </p>
 
         <input
           ref={inputRef}
           type="file"
-          accept="image/jpeg,image/png,image/heic,image/heif"
+          accept="image/jpeg,image/png,image/heic,image/heif,.cr2,.cr3,.dng,.nef,.arw,.raf,.orf,.rw2"
           multiple
           hidden
           onChange={(e) => handleFiles(e.target.files)}

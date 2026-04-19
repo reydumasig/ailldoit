@@ -39,18 +39,34 @@ import {
 } from "../services/photo-download-service";
 
 // Uploads are held in memory so we can pipe buffers to Firebase Storage
-// without a disk hop. 25MB per file (pro-camera JPEGs run 8–20MB), up to
-// 40 files per request (covers a full bracketed property shoot).
+// without a disk hop. 120MB per file — pro JPEGs run 8–20MB, but RAW files
+// (CR3, DNG, NEF, ARW, RAF) can easily hit 60–90MB. 40 files per request
+// covers a full bracketed property shoot.
+//
+// RAW note: browsers don't always send a useful mimetype for RAW (often
+// "application/octet-stream"), so we also match by extension. Accepted
+// formats — JPEG, PNG, HEIC/HEIF, plus RAW: CR2/CR3 (Canon), DNG (Adobe),
+// NEF (Nikon), ARW (Sony), RAF (Fuji), ORF (Olympus), RW2 (Panasonic).
+const RAW_EXT_RE = /\.(cr2|cr3|dng|nef|arw|raf|orf|rw2)$/i;
+const STANDARD_IMAGE_MIME_RE = /^image\/(jpe?g|png|heic|heif)$/i;
+const RAW_MIME_RE =
+  /^image\/(x-canon-cr[23]|x-adobe-dng|x-nikon-nef|x-sony-arw|x-fuji-raf|x-olympus-orf|x-panasonic-rw2)$/i;
+
 const uploadMemory = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 25 * 1024 * 1024,
+    fileSize: 120 * 1024 * 1024,
     files: 40,
   },
   fileFilter: (_req, file, cb) => {
-    const ok = /^image\/(jpe?g|png|heic|heif)$/i.test(file.mimetype);
+    const mime = file.mimetype || "";
+    const name = file.originalname || "";
+    const ok =
+      STANDARD_IMAGE_MIME_RE.test(mime) ||
+      RAW_MIME_RE.test(mime) ||
+      RAW_EXT_RE.test(name);
     if (!ok) {
-      return cb(new Error(`Unsupported file type: ${file.mimetype}`));
+      return cb(new Error(`Unsupported file type: ${mime || name}`));
     }
     cb(null, true);
   },
