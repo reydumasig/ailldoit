@@ -21,7 +21,6 @@
  * exposures). Those own their own orchestration.
  */
 
-import sharp from "sharp";
 import { and, desc, eq } from "drizzle-orm";
 import type {
   EditJob,
@@ -37,6 +36,7 @@ import {
 } from "@shared/schema";
 import { firebaseStorageService } from "../../services/firebase-storage-service";
 import type { HandlerResult } from "./pipeline-auto";
+import { renderDualOutput } from "./watermark";
 
 /**
  * What a handler must produce given the input. Either a buffer of the
@@ -87,41 +87,49 @@ export async function runSingleAssetCorrection(
     );
   }
 
-  // 2. Produce the corrected buffer. Cost/meta are optional — CPU fallbacks
-  //    typically return 0.
+  // 2. Produce the clean buffer from the handler's produce() callback.
+  //    Every caller (correction handlers, enhance) returns unwatermarked
+  //    bytes here — we do the watermarking uniformly below.
   const produced = await opts.produce({ inputAsset, job });
-  const outputBuffer = produced.outputBuffer;
   const costCents = produced.costCents ?? 0;
   const providerMeta = produced.providerMeta ?? { provider: "local-fallback" };
 
-  // 3. Upload under a stage-aware path so ops can see what's what when
-  //    browsing the bucket.
-  const storagePath = `photo/${inferOrgId(inputAsset)}/${job.projectId}/${opts.stage}/asset_${inputAsset.id}_${Date.now()}_preview.jpg`;
-  const outputUrl = await firebaseStorageService.uploadFile(
-    storagePath,
-    outputBuffer,
-    "image/jpeg",
-    {
+  // 3. Fork into clean + watermarked JPEGs. The clean one backs the paid
+  //    unlock-download; the watermarked one is the free preview. Both
+  //    upload in parallel so latency is ~max(upload_clean, upload_wm)
+  //    rather than sum.
+  const dual = await renderDualOutput(produced.outputBuffer);
+
+  const baseDir = `photo/${inferOrgId(inputAsset)}/${job.projectId}/${opts.stage}`;
+  const stamp = Date.now();
+  const previewPath = `${baseDir}/asset_${inputAsset.id}_${stamp}_preview.jpg`;
+  const cleanPath = `${baseDir}/asset_${inputAsset.id}_${stamp}_clean.jpg`;
+
+  const [outputUrl, cleanOutputUrl] = await Promise.all([
+    firebaseStorageService.uploadFile(previewPath, dual.watermarked, "image/jpeg", {
       editJobId: String(job.id),
       sourceAssetId: String(inputAsset.id),
       kind: `${opts.stage}_preview`,
-    }
-  );
+    }),
+    firebaseStorageService.uploadFile(cleanPath, dual.clean, "image/jpeg", {
+      editJobId: String(job.id),
+      sourceAssetId: String(inputAsset.id),
+      kind: `${opts.stage}_clean`,
+    }),
+  ]);
 
   // 4. Version + asset insert, atomically with demotion of the previous
   //    current version.
   const result = await db.transaction(async (tx) => {
-    const meta = await sharp(outputBuffer).metadata();
-
     const insertAsset: InsertPhotoAsset = {
       projectId: job.projectId,
       userId: job.userId,
-      sourceUrl: outputUrl,
+      sourceUrl: outputUrl, // asset sourceUrl tracks the preview (UI default)
       fileName: `asset_${inputAsset.id}_${opts.stage}.jpg`,
       mimeType: "image/jpeg",
-      sizeBytes: outputBuffer.byteLength,
-      widthPx: meta.width ?? null,
-      heightPx: meta.height ?? null,
+      sizeBytes: dual.watermarked.byteLength,
+      widthPx: dual.width,
+      heightPx: dual.height,
       exifData: null,
       derivedFromJobId: job.id,
     };
@@ -157,6 +165,7 @@ export async function runSingleAssetCorrection(
       jobId: job.id,
       versionNumber: nextVersion,
       outputUrl,
+      cleanOutputUrl,
       watermarked: true,
       isCurrent: true,
     };

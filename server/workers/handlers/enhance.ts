@@ -40,6 +40,7 @@ import {
   ProviderUnavailableError,
 } from "../../services/photo-providers";
 import type { HandlerResult } from "./pipeline-auto";
+import { renderDualOutput } from "./watermark";
 
 /** Sharpening / vibrance strength used by the local fallback. */
 const LOCAL_SATURATION_LIFT = 1.08;
@@ -89,35 +90,41 @@ export async function handleEnhance(job: EditJob): Promise<HandlerResult> {
     outputBuffer = await localEnhance(inputAsset.sourceUrl);
   }
 
-  // 3. Upload the polished JPEG under a deterministic path.
-  const storagePath = `photo/${inferOrgId(inputAsset)}/${job.projectId}/enhanced/asset_${inputAsset.id}_${Date.now()}_preview.jpg`;
-  const outputUrl = await firebaseStorageService.uploadFile(
-    storagePath,
-    outputBuffer,
-    "image/jpeg",
-    {
+  // 3. Fork the polished buffer into clean + watermarked JPEGs and upload
+  //    both. Clean backs the paid unlock-download; watermarked is the
+  //    free preview shown in the UI.
+  const dual = await renderDualOutput(outputBuffer);
+
+  const baseDir = `photo/${inferOrgId(inputAsset)}/${job.projectId}/enhanced`;
+  const stamp = Date.now();
+  const previewPath = `${baseDir}/asset_${inputAsset.id}_${stamp}_preview.jpg`;
+  const cleanPath = `${baseDir}/asset_${inputAsset.id}_${stamp}_clean.jpg`;
+
+  const [outputUrl, cleanOutputUrl] = await Promise.all([
+    firebaseStorageService.uploadFile(previewPath, dual.watermarked, "image/jpeg", {
       editJobId: String(job.id),
       sourceAssetId: String(inputAsset.id),
       kind: "enhance_preview",
-    }
-  );
+    }),
+    firebaseStorageService.uploadFile(cleanPath, dual.clean, "image/jpeg", {
+      editJobId: String(job.id),
+      sourceAssetId: String(inputAsset.id),
+      kind: "enhance_clean",
+    }),
+  ]);
 
   // 4. Persist the new version. We bump versionNumber relative to the
   //    highest existing version for this asset, and flip isCurrent over.
   const result = await db.transaction(async (tx) => {
-    // Capture image metadata from the buffer once so both the asset row
-    // and the DB match what's actually on disk.
-    const meta = await sharp(outputBuffer).metadata();
-
     const insertAsset: InsertPhotoAsset = {
       projectId: job.projectId,
       userId: job.userId,
       sourceUrl: outputUrl,
       fileName: `asset_${inputAsset.id}_enhanced.jpg`,
       mimeType: "image/jpeg",
-      sizeBytes: outputBuffer.byteLength,
-      widthPx: meta.width ?? null,
-      heightPx: meta.height ?? null,
+      sizeBytes: dual.watermarked.byteLength,
+      widthPx: dual.width,
+      heightPx: dual.height,
       exifData: null,
       derivedFromJobId: job.id,
     };
@@ -154,6 +161,7 @@ export async function handleEnhance(job: EditJob): Promise<HandlerResult> {
       jobId: job.id,
       versionNumber: nextVersion,
       outputUrl,
+      cleanOutputUrl,
       watermarked: true,
       isCurrent: true,
     };

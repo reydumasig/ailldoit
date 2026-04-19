@@ -407,6 +407,12 @@ export const editVersions = pgTable("edit_versions", {
   jobId: integer("job_id").references(() => editJobs.id, { onDelete: "set null" }),
   versionNumber: integer("version_number").notNull(),
   outputUrl: text("output_url").notNull(),
+  // Clean (unwatermarked) rendition, produced in parallel with `outputUrl`
+  // at handler time and uploaded to a distinct Firebase path. The unlock-
+  // download endpoint returns this URL after debiting credits. Nullable
+  // because legacy rows (pre-Week-6) don't have a clean variant — those
+  // versions can't be unlocked without re-running the pipeline.
+  cleanOutputUrl: text("clean_output_url"),
   watermarked: boolean("watermarked").default(true),
   isCurrent: boolean("is_current").default(false),
   createdAt: timestamp("created_at").defaultNow(),

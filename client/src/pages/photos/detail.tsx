@@ -3,21 +3,33 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useRoute } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { getAuthHeaders } from "@/lib/queryClient";
+import { apiRequest, getAuthHeaders } from "@/lib/queryClient";
 import {
   ArrowLeft,
   Camera,
+  Coins,
   Download,
   History,
   Layers,
   Loader2,
+  Lock,
   MapPin,
+  Package,
   UploadCloud,
   ImageOff,
   AlertTriangle,
   RefreshCw,
   Sparkles,
+  Unlock,
 } from "lucide-react";
 import type { PhotoAsset, PhotoProject } from "@shared/schema";
 import { CreditsChip } from "@/components/photos/credits-chip";
@@ -65,6 +77,12 @@ type EditVersion = {
   jobId: number | null;
   versionNumber: number;
   outputUrl: string;
+  /**
+   * URL to the clean (unwatermarked) rendition. Populated from Week 6
+   * onwards — older rows may be null, in which case the unlock endpoint
+   * responds 409 and the UI shows "re-run pipeline to unlock".
+   */
+  cleanOutputUrl: string | null;
   watermarked: boolean | null;
   isCurrent: boolean | null;
   createdAt: string | null;
@@ -78,6 +96,40 @@ type EditVersion = {
   } | null;
 };
 type VersionsResponse = { versions: EditVersion[] };
+
+type UnlockResponse = {
+  url: string;
+  charged: boolean;
+  downloadId: number;
+  versionId: number;
+  balanceAfter: number;
+};
+
+type BatchUnlockResponse = {
+  unlocked: Array<{
+    versionId: number;
+    url: string;
+    charged: boolean;
+    downloadId: number;
+  }>;
+  failed?: {
+    reason: "insufficient_credits";
+    required: number;
+    available: number;
+  };
+  balance: number;
+};
+
+type BatchPlanResponse = {
+  plan: {
+    chargeable: number[];
+    alreadyUnlocked: number[];
+    missingClean: number[];
+    invalid: number[];
+    creditsNeeded: number;
+  };
+  balance: number;
+};
 
 export default function PhotosDetail() {
   const [, params] = useRoute<{ id: string }>("/photos/:id");
@@ -126,7 +178,12 @@ export default function PhotosDetail() {
           </div>
           <div className="flex items-center gap-3">
             <CreditsChip />
-            {id && project ? <TestQueueButton projectId={id} /> : null}
+            {id && project ? (
+              <>
+                <BatchUnlockButton projectId={id} groups={groups} />
+                <TestQueueButton projectId={id} />
+              </>
+            ) : null}
           </div>
         </div>
       </header>
@@ -870,7 +927,14 @@ function MergedPreview({
               {mergedAsset.widthPx}×{mergedAsset.heightPx}
             </span>
           ) : null}
-          <DownloadButton url={afterUrl} fileName={mergedAsset.fileName} />
+          <PreviewDownloadButton url={afterUrl} fileName={mergedAsset.fileName} />
+          {activeVersion ? (
+            <UnlockAndDownloadButton
+              projectId={mergedAsset.projectId}
+              version={activeVersion}
+              fileName={mergedAsset.fileName}
+            />
+          ) : null}
         </div>
       </div>
       {versions.length > 1 ? (
@@ -1059,11 +1123,11 @@ function humaniseJobType(jobType: string): string {
 }
 
 /**
- * Downloads a remote file via fetch → object URL so we can set a nice
- * filename. Hitting the Firebase signed URL with `download` attribute
- * alone leaves the Firebase-generated filename, which users hate.
+ * Free-tier preview download — watermarked rendition. No credits charged.
+ * Pulled via fetch → object URL so we can set a nice filename (hitting the
+ * Firebase signed URL with a download attribute leaves the storage key).
  */
-function DownloadButton({ url, fileName }: { url: string; fileName: string }) {
+function PreviewDownloadButton({ url, fileName }: { url: string; fileName: string }) {
   const [pending, setPending] = useState(false);
   const { toast } = useToast();
 
@@ -1073,14 +1137,7 @@ function DownloadButton({ url, fileName }: { url: string; fileName: string }) {
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Download failed: ${res.status}`);
       const blob = await res.blob();
-      const objectUrl = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = objectUrl;
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(objectUrl);
+      await triggerBlobDownload(blob, prefixFileName(fileName, "preview"));
     } catch (err) {
       toast({
         title: "Download failed",
@@ -1099,13 +1156,511 @@ function DownloadButton({ url, fileName }: { url: string; fileName: string }) {
       className="h-6 px-2 text-[11px]"
       onClick={handleClick}
       disabled={pending}
+      title="Download the watermarked preview (free)"
     >
       {pending ? (
         <Loader2 className="w-3 h-3 mr-1 animate-spin" />
       ) : (
         <Download className="w-3 h-3 mr-1" />
       )}
-      Download
+      Preview
     </Button>
   );
+}
+
+/**
+ * Paid unlock + download (1 credit). Calls the unlock endpoint, which is
+ * idempotent per-org-per-version — repeat clicks after the first don't
+ * re-bill. On 402 we pop the top-up modal seeded with the shortfall so the
+ * user can buy credits in one click.
+ */
+function UnlockAndDownloadButton({
+  projectId,
+  version,
+  fileName,
+}: {
+  projectId: number;
+  version: EditVersion;
+  fileName: string;
+}) {
+  const [pending, setPending] = useState(false);
+  const [insufficient, setInsufficient] = useState<{
+    required: number;
+    available: number;
+  } | null>(null);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  // Pre-Week-6 renditions have no clean URL — disable the button and
+  // surface the "re-run pipeline" guidance so users don't keep clicking.
+  const noClean = !version.cleanOutputUrl;
+
+  const handleClick = async () => {
+    if (noClean) return;
+    try {
+      setPending(true);
+      const res = await fetch(
+        `/api/photo/projects/${projectId}/versions/${version.id}/unlock`,
+        {
+          method: "POST",
+          headers: await getAuthHeaders(),
+          credentials: "include",
+        }
+      );
+
+      if (res.status === 402) {
+        const body = (await res.json()) as {
+          required: number;
+          available: number;
+        };
+        setInsufficient({ required: body.required, available: body.available });
+        return;
+      }
+      if (!res.ok) {
+        const text = (await res.text()) || res.statusText;
+        throw new Error(`${res.status}: ${text}`);
+      }
+
+      const data = (await res.json()) as UnlockResponse;
+      // Fetch clean bytes and trigger download. We could `<a href>` the
+      // signed URL directly, but fetch-and-blob lets us set a nice filename.
+      const cleanRes = await fetch(data.url);
+      if (!cleanRes.ok) {
+        throw new Error(`Clean download failed: ${cleanRes.status}`);
+      }
+      const blob = await cleanRes.blob();
+      await triggerBlobDownload(blob, prefixFileName(fileName, "clean"));
+
+      // Refresh the balance chip. If we didn't actually charge (already
+      // unlocked), the invalidation is still cheap and keeps the UI honest.
+      queryClient.invalidateQueries({
+        queryKey: ["/api/photo/credits/balance"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["/api/photo/credits/ledger"],
+      });
+
+      toast({
+        title: data.charged ? "1 credit spent" : "Already unlocked",
+        description: data.charged
+          ? `Clean rendition downloaded · ${data.balanceAfter} credits remaining`
+          : `You've already paid for this version. Free re-download.`,
+      });
+    } catch (err) {
+      toast({
+        title: "Unlock failed",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <>
+      <Button
+        size="sm"
+        className={`h-6 px-2 text-[11px] ${
+          noClean
+            ? "bg-gray-100 text-gray-400"
+            : "bg-ailldoit-accent hover:bg-ailldoit-accent/90 text-white"
+        }`}
+        onClick={handleClick}
+        disabled={pending || noClean}
+        title={
+          noClean
+            ? "Pre-Week-6 version — re-run the pipeline to generate a clean rendition"
+            : "Spend 1 credit to download the full-res, unwatermarked image"
+        }
+        data-testid={`unlock-version-${version.id}`}
+      >
+        {pending ? (
+          <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+        ) : noClean ? (
+          <Lock className="w-3 h-3 mr-1" />
+        ) : (
+          <Unlock className="w-3 h-3 mr-1" />
+        )}
+        {noClean ? "No clean rendition" : "Unlock (1 credit)"}
+      </Button>
+      <InsufficientCreditsDialog
+        open={!!insufficient}
+        onOpenChange={(v) => !v && setInsufficient(null)}
+        required={insufficient?.required ?? 0}
+        available={insufficient?.available ?? 0}
+      />
+    </>
+  );
+}
+
+/**
+ * Project-level batch unlock: collects the current rendition for every
+ * bracket group that has one, plans the debit, confirms with the user, then
+ * unlocks and streams the resulting ZIP. Splits payment (unlock) from
+ * delivery (zip) so a flaky browser retry doesn't re-bill.
+ */
+function BatchUnlockButton({
+  projectId,
+  groups,
+}: {
+  projectId: string;
+  groups: BracketGroup[];
+}) {
+  const [planOpen, setPlanOpen] = useState(false);
+  const [plan, setPlan] = useState<BatchPlanResponse | null>(null);
+  const [pending, setPending] = useState(false);
+  const [insufficient, setInsufficient] = useState<{
+    required: number;
+    available: number;
+  } | null>(null);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  // Candidate version ids: one per bracket group's current merged asset's
+  // current version. We hit the versions endpoint per asset to know the
+  // current version id — but since we already render those ids on the page
+  // we can collect them from the cached queries.
+  const candidateAssetIds = groups
+    .map((g) => g.mergedAsset?.id)
+    .filter((id): id is number => typeof id === "number");
+
+  const openPlan = async () => {
+    if (candidateAssetIds.length === 0) {
+      toast({
+        title: "Nothing to unlock yet",
+        description:
+          "Run the pipeline on at least one bracket first — then come back to download the clean batch.",
+      });
+      return;
+    }
+    try {
+      setPending(true);
+      // Collect current version ids for each merged asset. We fetch the
+      // versions endpoint per asset — cheap, no pagination, and the results
+      // are already cached for most of the page.
+      const versionIds: number[] = [];
+      for (const assetId of candidateAssetIds) {
+        const cached = queryClient.getQueryData<VersionsResponse>([
+          `/api/photo/projects/${projectId}/assets/${assetId}/versions`,
+        ]);
+        const versions =
+          cached?.versions ??
+          (await (async () => {
+            const r = await fetch(
+              `/api/photo/projects/${projectId}/assets/${assetId}/versions`,
+              { headers: await getAuthHeaders(), credentials: "include" }
+            );
+            if (!r.ok) return [] as EditVersion[];
+            return (((await r.json()) as VersionsResponse).versions ?? []);
+          })());
+        const current =
+          versions.find((v) => v.isCurrent) ??
+          versions
+            .slice()
+            .sort((a, b) => b.versionNumber - a.versionNumber)[0];
+        if (current?.cleanOutputUrl) versionIds.push(current.id);
+      }
+
+      if (versionIds.length === 0) {
+        toast({
+          title: "No clean renditions available",
+          description:
+            "Re-run the pipeline on your brackets — older versions don't have clean renditions yet.",
+        });
+        return;
+      }
+
+      // Plan — no debit, just "how many credits will this cost".
+      const res = await apiRequest(
+        "POST",
+        `/api/photo/projects/${projectId}/versions/batch-unlock`,
+        { versionIds, planOnly: true }
+      );
+      const data = (await res.json()) as BatchPlanResponse;
+      setPlan(data);
+      setPlanOpen(true);
+    } catch (err) {
+      toast({
+        title: "Couldn't plan batch",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const confirmDownload = async () => {
+    if (!plan) return;
+    try {
+      setPending(true);
+
+      const allIds = [...plan.plan.chargeable, ...plan.plan.alreadyUnlocked];
+      if (allIds.length === 0) {
+        toast({
+          title: "Nothing to download",
+          description: "None of the requested versions have a clean rendition.",
+        });
+        setPlanOpen(false);
+        return;
+      }
+
+      // Debit credits for the chargeable set. Already-unlocked ids are
+      // tolerated by the unlock endpoint (idempotent) so we can pass the
+      // union and not worry about reconciliation here.
+      if (plan.plan.chargeable.length > 0) {
+        const unlockRes = await apiRequest(
+          "POST",
+          `/api/photo/projects/${projectId}/versions/batch-unlock`,
+          { versionIds: plan.plan.chargeable }
+        );
+        const unlockData = (await unlockRes.json()) as BatchUnlockResponse;
+        if (unlockData.failed?.reason === "insufficient_credits") {
+          setInsufficient({
+            required: unlockData.failed.required,
+            available: unlockData.failed.available,
+          });
+          // Partial-fulfilment handling: keep the already-charged subset —
+          // those ids will still download correctly in the ZIP.
+          // We refresh balance and fall through so the user at least gets
+          // the photos they paid for.
+        }
+        queryClient.invalidateQueries({
+          queryKey: ["/api/photo/credits/balance"],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["/api/photo/credits/ledger"],
+        });
+      }
+
+      // Now stream the zip. Re-query the plan so we don't ask for versions
+      // the user couldn't afford (partial fulfilment).
+      const replanRes = await apiRequest(
+        "POST",
+        `/api/photo/projects/${projectId}/versions/batch-unlock`,
+        { versionIds: allIds, planOnly: true }
+      );
+      const replan = (await replanRes.json()) as BatchPlanResponse;
+      const downloadableIds = replan.plan.alreadyUnlocked;
+      if (downloadableIds.length === 0) {
+        setPlanOpen(false);
+        return;
+      }
+
+      const zipUrl =
+        `/api/photo/projects/${projectId}/versions/download.zip` +
+        `?versionIds=${downloadableIds.join(",")}`;
+      const zipRes = await fetch(zipUrl, {
+        headers: await getAuthHeaders(),
+        credentials: "include",
+      });
+      if (!zipRes.ok) {
+        const text = (await zipRes.text()) || zipRes.statusText;
+        throw new Error(`${zipRes.status}: ${text}`);
+      }
+      const blob = await zipRes.blob();
+      await triggerBlobDownload(
+        blob,
+        `ailldoit-project-${projectId}-${Date.now()}.zip`
+      );
+
+      toast({
+        title: `Downloaded ${downloadableIds.length} clean rendition${downloadableIds.length === 1 ? "" : "s"}`,
+        description:
+          plan.plan.chargeable.length > 0
+            ? `${plan.plan.chargeable.length} newly unlocked · ${plan.plan.alreadyUnlocked.length} previously paid`
+            : "All were previously unlocked — no credits spent.",
+      });
+
+      setPlanOpen(false);
+      setPlan(null);
+    } catch (err) {
+      toast({
+        title: "Batch download failed",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const creditsNeeded = plan?.plan.creditsNeeded ?? 0;
+  const balance = plan?.balance ?? 0;
+  const canAfford = balance >= creditsNeeded;
+
+  return (
+    <>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={openPlan}
+        disabled={pending || candidateAssetIds.length === 0}
+        data-testid="batch-unlock-button"
+      >
+        {pending ? (
+          <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+        ) : (
+          <Package className="w-3 h-3 mr-1" />
+        )}
+        Download all clean
+      </Button>
+      <Dialog open={planOpen} onOpenChange={setPlanOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Download all clean renditions</DialogTitle>
+            <DialogDescription>
+              One credit per version. Already-unlocked versions are free.
+            </DialogDescription>
+          </DialogHeader>
+          {plan ? (
+            <div className="text-sm space-y-2">
+              <div className="flex justify-between">
+                <span className="text-ailldoit-muted">New unlocks</span>
+                <span className="font-medium">
+                  {plan.plan.chargeable.length} ×{" "}
+                  <Coins className="w-3 h-3 inline" /> {creditsNeeded} credit
+                  {creditsNeeded === 1 ? "" : "s"}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-ailldoit-muted">Already unlocked</span>
+                <span className="font-medium">
+                  {plan.plan.alreadyUnlocked.length} · free
+                </span>
+              </div>
+              {plan.plan.missingClean.length > 0 ? (
+                <div className="flex justify-between text-amber-700">
+                  <span>Missing clean rendition</span>
+                  <span className="font-medium">
+                    {plan.plan.missingClean.length} skipped
+                  </span>
+                </div>
+              ) : null}
+              <div className="h-px bg-gray-200 my-2" />
+              <div className="flex justify-between">
+                <span className="text-ailldoit-muted">Your balance</span>
+                <span
+                  className={`font-medium ${canAfford ? "text-emerald-700" : "text-red-700"}`}
+                >
+                  {balance} credit{balance === 1 ? "" : "s"}
+                </span>
+              </div>
+              {!canAfford ? (
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+                  You'll unlock the first {balance} versions; the remaining{" "}
+                  {creditsNeeded - balance} need a top-up.
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <div className="flex items-center justify-center py-8 text-ailldoit-muted">
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Planning…
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setPlanOpen(false)}
+              disabled={pending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={confirmDownload}
+              disabled={pending || !plan}
+              className="bg-ailldoit-accent hover:bg-ailldoit-accent/90 text-white"
+            >
+              {pending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Downloading…
+                </>
+              ) : creditsNeeded > 0 ? (
+                `Spend ${Math.min(creditsNeeded, balance)} & download`
+              ) : (
+                "Download ZIP"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <InsufficientCreditsDialog
+        open={!!insufficient}
+        onOpenChange={(v) => !v && setInsufficient(null)}
+        required={insufficient?.required ?? 0}
+        available={insufficient?.available ?? 0}
+      />
+    </>
+  );
+}
+
+/**
+ * Shared 402 prompt. Keeps the copy + CTA consistent between the per-version
+ * unlock and the batch path. Dispatches a window event the CreditsChip
+ * can listen to — or simply tells the user to click the chip — we go with
+ * the latter for MVP since a cross-component bus is overkill.
+ */
+function InsufficientCreditsDialog({
+  open,
+  onOpenChange,
+  required,
+  available,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  required: number;
+  available: number;
+}) {
+  const shortfall = Math.max(0, required - available);
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Coins className="w-5 h-5 text-amber-600" />
+            Top up to finish unlocking
+          </DialogTitle>
+          <DialogDescription>
+            You need {shortfall} more credit{shortfall === 1 ? "" : "s"} to
+            unlock this. Your balance is {available}
+            {required > 1 ? ` · ${required} required` : ""}.
+          </DialogDescription>
+        </DialogHeader>
+        <p className="text-sm text-ailldoit-muted">
+          Click <span className="font-medium">Buy</span> on the credits chip in
+          the header to purchase a top-up pack. You'll come back here
+          automatically after checkout.
+        </p>
+        <DialogFooter>
+          <Button onClick={() => onOpenChange(false)}>Got it</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Download helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function triggerBlobDownload(blob: Blob, fileName: string): Promise<void> {
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    const a = document.createElement("a");
+    a.href = objectUrl;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+/** Inserts a suffix before the file extension, e.g. "shot.jpg" + "clean" → "shot-clean.jpg" */
+function prefixFileName(fileName: string, suffix: string): string {
+  const dot = fileName.lastIndexOf(".");
+  if (dot <= 0) return `${fileName}-${suffix}`;
+  return `${fileName.slice(0, dot)}-${suffix}${fileName.slice(dot)}`;
 }

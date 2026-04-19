@@ -4,30 +4,36 @@
 **Product owner:** Rey (CEO) — see `PRD.md` for full Founder-Grade PRD
 **Engineering owner:** Claude
 **Target:** Paying-customer MVP launch — end of Month 2 (~8 weeks)
-**Last session:** 2026-04-19 — Weeks 1 → 5 code-complete (Week 3 tail landed: white-balance, perspective, sky-replace + window-pull handlers; `pipeline_auto` chains them best-effort). Week 5 blocked only on Rey creating Stripe credit-pack SKUs (envs set). See [§8 Updates log](#8-updates-log).
+**Last session:** 2026-04-19 — Weeks 1 → 6 core code-complete. Week 6 landed pay-on-download (unlock endpoint + per-version + batch ZIP UI, dual-output pipeline). Deferred to Week 7: "mark delivered" flag + archive filters. See [§8 Updates log](#8-updates-log).
 
 > ## 🎯 Where we left off (2026-04-19)
 >
-> Weeks 1 → 5 are code-complete. Week 3 tail landed this session:
-> `white-balance` (provider → gray-world CPU fallback), `perspective`
-> (provider → Sharp affine fallback), `sky-replace` + `window-pull`
-> (provider-only — no CPU approximation on purpose). `pipeline_auto` now
-> chains `hdr_merge → white_balance → perspective → window_pull →
-> sky_replace → enhance` with each post-HDR step best-effort.
+> Weeks 1 → 6 core shipped. Pay-on-download is fully wired:
+> `photoDownloadService` (unlock / planBatch / unlockBatch) with
+> idempotent per-org-per-version receipts in `photo_downloads`; dual-
+> output pipeline so every handler emits clean + watermarked JPEGs in
+> parallel; endpoints for per-version unlock, batch planning/debit, and
+> streamed ZIP via `archiver`; UI for per-version unlock+download, free
+> watermarked preview download, and project-wide "Download all clean"
+> with a plan/confirm dialog. Partial fulfilment on insufficient credits
+> (unlock what you can afford, prompt to top up for the rest).
 >
 > **Next open tasks on the critical path:**
-> 1. **Claude — Week 6:** unlock-download endpoint that debits credits via
->    `photoCreditService.chargeForDownload`, serves the non-watermarked URL,
->    then batch ZIP export.
+> 1. **Claude — Week 7 polish:** Sentry on worker paths, PostHog events
+>    (upload_started, job_succeeded/failed, preview_viewed,
+>    download_unlocked), admin cost-per-job dashboard, failure-recovery
+>    UX, "mark project delivered" flag + archive filters (deferred
+>    from Week 6).
 > 2. **Bakeoff (background) — pin Replicate models** for `sky-replace`,
->    `window-pull`, `perspective`, `white-balance`. Handlers are wired; the
->    `MODEL_REGISTRY` entries just need version ids. No handler changes needed.
+>    `window-pull`, `perspective`, `white-balance`. Handlers are wired;
+>    `MODEL_REGISTRY` entries just need version ids. No handler changes.
 > 3. **Rey — Stripe dashboard (done):** the 3 one-time products are created
 >    and `VITE_STRIPE_PHOTO_{STARTER,GROWTH,AGENCY}_PACK_PRICE_ID` are set.
 >
-> **Quality gates green:** `npm run check` clean. Full chain typechecks.
-> Credit ledger debit is transactional (SELECT FOR UPDATE). Webhook
-> idempotency keyed on stripe_charge_id.
+> **Quality gates green:** `npx tsc --noEmit` clean. Client build clean.
+> Credit ledger debit is transactional (SELECT FOR UPDATE). Unlock +
+> `photo_downloads` insert is transactional. Webhook idempotency keyed
+> on stripe_charge_id; unlock idempotency keyed on (project_id, version_id).
 >
 > **Dev ops reminder:** Cloud Run staging service is provisioned but **off**;
 > Cloud SQL stays off between sessions; local Docker Postgres is the dev DB.
@@ -144,12 +150,13 @@ reuses what works.
 - [x] Org-level balance display _(`GET /api/photo/credits/balance` + `CreditsChip` in both `/photos` and `/photos/:id` headers; low/zero balance tinted amber/red as a top-up nudge)_
 - [x] Checkout flow: Stripe Checkout → webhook → ledger credit _(one-time `mode:payment` Checkout session with orgId/userId/packId metadata; webhook delegates via `subscription-service.handleWebhook` → `photoCreditService.handleWebhookEvent`; idempotent on `stripe_charge_id` so Stripe retries don't double-grant; priceId verified against catalog before grant so tampered metadata can't inflate credits)_
 
-**Week 6 — Pay-on-download + delivery**
-- [ ] Unlock-download endpoint (debits credits, returns non-watermarked URL)
-- [ ] Individual image download
-- [ ] Batch download (ZIP)
-- [ ] "Mark project delivered" flag
-- [ ] Project history/archive filters
+**Week 6 — Pay-on-download + delivery** 🟢 _core code-complete 2026-04-19 (unlock + per-version + batch ZIP + UI). "Mark delivered" flag + archive filters deferred to Week 7 polish._
+- [x] Unlock-download endpoint (debits credits, returns non-watermarked URL) _(`POST /api/photo/projects/:id/versions/:versionId/unlock` — idempotent per org+version, `InsufficientCreditsError` → 402, `VersionNotFoundError` → 404, `NoCleanRenditionError` → 409; `photoDownloadService` owns ledger debit + `photo_downloads` receipt inside one DB transaction)_
+- [x] Individual image download _(`UnlockAndDownloadButton` in `MergedPreview` — fetches clean URL after unlock, blob-downloads with `{filename}-clean.jpg`; `PreviewDownloadButton` keeps the free watermarked path alive)_
+- [x] Batch download (ZIP) _(`POST /versions/batch-unlock` with `planOnly` for the confirm dialog + `GET /versions/download.zip?versionIds=…` streaming via `archiver`; UI: `BatchUnlockButton` in project header pulls currents from cached per-asset version queries, shows `{chargeable, alreadyUnlocked, missingClean}` + balance, partial-fulfilment on 402)_
+- [x] Dual-output pipeline _(every handler now emits `clean` + `watermarked` JPEGs in parallel from the same source buffer — `renderDualOutput` / `cleanFromRaw` + `watermarkFromRaw` — and stores both URLs on `editVersions.{outputUrl,cleanOutputUrl}`; zero AI re-run at unlock time)_
+- [ ] "Mark project delivered" flag _(deferred to Week 7 — needs retention/archive UI)_
+- [ ] Project history/archive filters _(deferred to Week 7)_
 
 **Week 7 — Polish + telemetry**
 - [ ] Sentry wiring on all worker paths
@@ -283,6 +290,36 @@ processing success rate
   version chip strip, download-with-filename button. **Open on critical path:**
   white balance, perspective, sky replace, window pull (each a new handler on
   the provider interface), then Week 5–6 Stripe SKUs.
+- **2026-04-19 — Week 6 core shipped (pay-on-download + delivery).** New
+  `photoDownloadService` (`unlock` / `planBatch` / `unlockBatch`) enforces
+  the two invariants: pay-once-per-version-per-org (idempotency receipt in
+  `photo_downloads` — lost-tab re-downloads are free) and atomic
+  debit+receipt (single `db.transaction`). Partial-fulfilment on overdraft
+  is deliberate: versions charged before an `InsufficientCreditsError`
+  stay unlocked, rest aren't — UI renders "unlocked N of M, top up for
+  the rest" cleaner than an all-or-nothing rollback. **Dual-output
+  pipeline:** every handler (`hdr-merge`, `correction-common`, `enhance`)
+  now emits `clean` + `watermarked` JPEGs in parallel from the same
+  source/raw buffer (`renderDualOutput`, `cleanFromRaw` +
+  `watermarkFromRaw`) and stores both URLs on `editVersions`. Zero AI
+  re-run at unlock — the paid path is a DB flip + credit debit + signed
+  URL. **Endpoints:** `POST /projects/:id/versions/:versionId/unlock`,
+  `POST /projects/:id/versions/batch-unlock` (with `planOnly` for the
+  confirm UI), `GET /projects/:id/versions/download.zip?versionIds=…`
+  streaming via `archiver`. **UI:** `UnlockAndDownloadButton` in the
+  merged-preview block (per-version; 1-credit confirm + blob download +
+  balance invalidation; 402 → shared `InsufficientCreditsDialog`;
+  disabled with "No clean rendition" when `cleanOutputUrl` is null for
+  pre-Week-6 rows). `PreviewDownloadButton` keeps the free watermarked
+  path alive. `BatchUnlockButton` in the project header: plans across
+  all bracket mergeds using cached versions queries, shows a
+  `{chargeable, alreadyUnlocked, missingClean}` breakdown + balance,
+  unlocks chargeable set, re-plans post-debit to filter out anything
+  partial-fulfilment couldn't cover, then fetches the ZIP via authed
+  `fetch` + blob download (plain `window.location` won't send the
+  Authorization header). Typecheck + client build clean. Deferred:
+  "Mark project delivered" flag + archive filters — retention surface
+  rolls up into Week 7 polish.
 - **2026-04-19 — Week 3 tail shipped.** All four remaining correction
   handlers landed: `white-balance` (gray-world CPU fallback with per-channel
   gain clamped to `[0.5, 2.0]`), `perspective` (Sharp affine transform
