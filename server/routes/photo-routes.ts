@@ -413,6 +413,84 @@ router.post(
   }
 );
 
+/**
+ * GET /api/photo/projects/:id/exif-diagnostic
+ * Dumps the parsed EXIF fields used by bracket detection for every asset
+ * in a project. Internal tool — no mutation, no secrets. Lets us see at a
+ * glance whether captureTime parsed correctly and where clustering would
+ * put each photo.
+ */
+router.get(
+  "/projects/:id/exif-diagnostic",
+  async (req: Request, res: Response) => {
+    const projectId = Number(req.params.id);
+    if (!Number.isFinite(projectId) || projectId <= 0) {
+      return res.status(400).json({ message: "Invalid project id" });
+    }
+    try {
+      const project = await photoProjectService.getByIdForOrg(
+        projectId,
+        req.orgId!
+      );
+      if (!project) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+      const assets = await photoAssetService.listByProject(projectId);
+      const rows = assets.map((a) => {
+        const exif = a.exifData as {
+          captureTime?: string | null;
+          exposureBiasEv?: number | null;
+          exposureTimeSec?: number | null;
+          iso?: number | null;
+          cameraModel?: string | null;
+        } | null;
+        return {
+          id: a.id,
+          fileName: a.fileName,
+          bracketGroupId: a.bracketGroupId,
+          captureTime: exif?.captureTime ?? null,
+          captureTimeMs: exif?.captureTime
+            ? new Date(exif.captureTime).getTime()
+            : null,
+          exposureBiasEv: exif?.exposureBiasEv ?? null,
+          exposureTimeSec: exif?.exposureTimeSec ?? null,
+          iso: exif?.iso ?? null,
+          cameraModel: exif?.cameraModel ?? null,
+        };
+      });
+      // Sort by captureTime to make gaps easy to read. Null-captureTime
+      // rows bubble to the top so they're loud.
+      rows.sort((a, b) => {
+        if (a.captureTimeMs == null) return -1;
+        if (b.captureTimeMs == null) return 1;
+        return a.captureTimeMs - b.captureTimeMs;
+      });
+      // Compute the gap (seconds) between each consecutive pair so you
+      // can see at a glance whether TIME_WINDOW_SEC would cluster them.
+      const rowsWithGaps = rows.map((r, i) => {
+        if (i === 0 || rows[i - 1].captureTimeMs == null || r.captureTimeMs == null) {
+          return { ...r, gapToPrevSec: null };
+        }
+        return {
+          ...r,
+          gapToPrevSec:
+            Math.round(((r.captureTimeMs - rows[i - 1].captureTimeMs!) / 1000) * 100) / 100,
+        };
+      });
+      res.json({
+        projectId,
+        assetCount: rows.length,
+        withCaptureTime: rows.filter((r) => r.captureTime).length,
+        withoutCaptureTime: rows.filter((r) => !r.captureTime).length,
+        assets: rowsWithGaps,
+      });
+    } catch (error: any) {
+      console.error("❌ PHOTO: EXIF diagnostic failed", error);
+      res.status(500).json({ message: "EXIF diagnostic failed" });
+    }
+  }
+);
+
 // -----------------------------------------------------------------------------
 // Jobs (BullMQ roundtrip)
 // -----------------------------------------------------------------------------
