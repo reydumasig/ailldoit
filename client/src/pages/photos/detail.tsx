@@ -330,13 +330,20 @@ function UploadDropzone({ projectId, assetCount }: { projectId: string; assetCou
 
   const handleFiles = (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
-    const files = Array.from(fileList).filter((f) =>
-      /^image\/(jpe?g|png|heic|heif)$/i.test(f.type)
+    // Browsers almost never set a useful MIME type for RAW files — most
+    // send an empty string or "application/octet-stream" for .CR3/.DNG
+    // etc. So accept by MIME (for standard formats) OR extension (for
+    // RAW). The server does the authoritative check.
+    const STANDARD_MIME_RE = /^image\/(jpe?g|png|heic|heif)$/i;
+    const RAW_EXT_RE = /\.(cr2|cr3|dng|nef|arw|raf|orf|rw2)$/i;
+    const files = Array.from(fileList).filter(
+      (f) => STANDARD_MIME_RE.test(f.type) || RAW_EXT_RE.test(f.name)
     );
     if (files.length === 0) {
       toast({
         title: "No supported images",
-        description: "Drop JPEG, PNG, or HEIC photos (up to 40 at a time).",
+        description:
+          "Drop JPEG, PNG, HEIC, or RAW (CR3/DNG/NEF/ARW/RAF) photos — up to 40 at a time.",
         variant: "destructive",
       });
       return;
@@ -402,7 +409,7 @@ function UploadDropzone({ projectId, assetCount }: { projectId: string; assetCou
           )}
         </Button>
         <p className="text-xs text-ailldoit-muted mt-3">
-          Up to 40 files · 25MB each · JPEG, PNG, or HEIC
+          Up to 40 files · 120MB each · JPEG, PNG, HEIC, or RAW
         </p>
 
         {uploadErrors.length > 0 && (
