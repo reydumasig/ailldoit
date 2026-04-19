@@ -24,6 +24,10 @@ import { editJobService } from "../services/edit-job-service";
 import { handlePipelineAuto, type HandlerResult } from "./handlers/pipeline-auto";
 import { handleHdrMerge } from "./handlers/hdr-merge";
 import { handleEnhance } from "./handlers/enhance";
+import { handleWhiteBalance } from "./handlers/white-balance";
+import { handlePerspective } from "./handlers/perspective";
+import { handleSkyReplace } from "./handlers/sky-replace";
+import { handleWindowPull } from "./handlers/window-pull";
 
 /**
  * Map from BullMQ job name → handler fn. Add entries as handlers land.
@@ -34,6 +38,10 @@ type JobHandler = (dbJob: EditJob) => Promise<HandlerResult>;
 const handlers: Partial<Record<PhotoJobName, JobHandler>> = {
   pipeline_auto: handlePipelineAuto,
   hdr_merge: handleHdrMerge,
+  white_balance: handleWhiteBalance,
+  perspective: handlePerspective,
+  window_pull: handleWindowPull,
+  sky_replace: handleSkyReplace,
   enhance: handleEnhance,
 };
 
