@@ -27,8 +27,17 @@ import {
   type PhotoAsset,
 } from "@shared/schema";
 
-/** Max gap between adjacent frames to still count as the same bracket set. */
-const TIME_WINDOW_SEC = 2.5;
+/**
+ * Max gap between adjacent frames to still count as the same bracket set.
+ *
+ * 6 seconds is a compromise: Canon/Sony AEB bursts fire within ~0.3s, but
+ * photographers doing manual brackets on a tripod (especially for tricky
+ * real-estate interiors) sometimes wait 2–4s between shots to let the
+ * mirror settle. A 2.5s window was clustering bursts correctly but
+ * missing every manual bracket. 6s still rejects unrelated scenes — the
+ * next shot is almost always >10s away once the photographer moves.
+ */
+const TIME_WINDOW_SEC = 6;
 
 /** An asset enriched with the fields we need for clustering. */
 interface Clusterable {
