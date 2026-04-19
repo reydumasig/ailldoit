@@ -28,6 +28,7 @@ import Stripe from "stripe";
 import { desc, eq } from "drizzle-orm";
 import { db } from "../db";
 import { ENV } from "../config/environment";
+import { getStripe } from "../config/stripe-client";
 import {
   photoCreditLedger,
   type PhotoCreditLedgerEntry,
@@ -40,10 +41,6 @@ import {
  * and the receipt either both commit or neither does.
  */
 export type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
-
-const stripe = new Stripe(ENV.stripe.secretKey, {
-  apiVersion: "2025-08-27.basil",
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Credit pack catalog
@@ -335,7 +332,7 @@ export class PhotoCreditService {
       throw new PackNotConfiguredError(input.packId);
     }
 
-    const session = await stripe.checkout.sessions.create({
+    const session = await getStripe().checkout.sessions.create({
       mode: "payment",
       payment_method_types: ["card"],
       line_items: [
@@ -417,7 +414,7 @@ export class PhotoCreditService {
     // Trust the priceId on the session, not the metadata.credits value.
     // metadata is user-controlled (via our own code), but the priceId is
     // Stripe-authoritative — if someone tampered with metadata we'd catch it.
-    const lineItems = await stripe.checkout.sessions.listLineItems(session.id, {
+    const lineItems = await getStripe().checkout.sessions.listLineItems(session.id, {
       limit: 5,
     });
     const lineItem = lineItems.data[0];
