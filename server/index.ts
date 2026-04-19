@@ -2,6 +2,7 @@ import { config } from 'dotenv';
 import express from "express";
 import http from "http";
 import { registerRoutes } from "./routes";
+import { startPhotoWorker } from "./workers/photo-worker";
 
 // Load environment variables
 config();
@@ -99,4 +100,33 @@ app.use((req, res, next) => {
   httpServer.listen(port, "0.0.0.0", () => {
     console.log(`🌍 SERVER: listening on port ${port} (${process.env.NODE_ENV || "development"})`);
   });
+
+  // Boot the photo-pipeline worker in-process. Any error at startup is
+  // non-fatal — the HTTP server is still useful (browse UI, upload) even
+  // if jobs can't run yet. REDIS_URL missing will throw before we get here.
+  let photoWorker: ReturnType<typeof startPhotoWorker> | null = null;
+  try {
+    photoWorker = startPhotoWorker();
+    console.log("🎞️  PHOTO WORKER: started (in-process)");
+  } catch (err: any) {
+    console.error("❌ PHOTO WORKER: failed to start — jobs will queue but not run:", err?.message ?? err);
+  }
+
+  // Graceful shutdown. SIGTERM is what Cloud Run sends when scaling down.
+  const shutdown = async (signal: string) => {
+    console.log(`🛑 SERVER: received ${signal}, shutting down…`);
+    try {
+      await photoWorker?.stop();
+    } catch (err: any) {
+      console.error("⚠️ SERVER: worker stop errored:", err?.message ?? err);
+    }
+    httpServer.close(() => {
+      console.log("👋 SERVER: closed HTTP server, bye");
+      process.exit(0);
+    });
+    // Safety net — don't hang forever if something is stuck.
+    setTimeout(() => process.exit(1), 10_000).unref();
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 })();

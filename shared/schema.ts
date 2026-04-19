@@ -295,3 +295,261 @@ export const insertPublishingSimulationSchema = createInsertSchema(publishingSim
 
 export type InsertPublishingSimulation = z.infer<typeof insertPublishingSimulationSchema>;
 export type PublishingSimulation = typeof publishingSimulations.$inferSelect;
+
+// ============================================================================
+// PHOTO MODULE (Real-estate AI photo editing — MVP v1.0)
+// ============================================================================
+// Additive schema. Does NOT touch campaigns/ad-generator tables.
+// See MVP_PHOTO_PLAN.md for product scope.
+
+// Organizations are the primary tenancy boundary for the photo module.
+// Every user who touches /photos gets an auto-created "personal" org on
+// first access so existing single-user accounts keep working without friction.
+// Teams / agencies invite additional members via `organization_members`.
+// Per PRD §7/§8: Phase 1 ships the data model + auto-personal-org; the full
+// invite + QC UI lands in Phase 1.5 but the tables are correct from Day 1.
+export const organizations = pgTable("organizations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  slug: varchar("slug").unique().notNull(),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id).notNull(),
+  isPersonal: boolean("is_personal").default(false), // auto-created personal org for a single user
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Join table for user ↔ org membership with role. A user can belong to
+// multiple orgs (e.g. their personal org + an agency they work with).
+// Roles per PRD: admin = full control; editor = run edits + QC approve;
+// viewer = read-only access to projects + delivered downloads.
+export const organizationMembers = pgTable("organization_members", {
+  id: serial("id").primaryKey(),
+  orgId: varchar("org_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  role: text("role").notNull().default("admin"), // 'admin' | 'editor' | 'viewer'
+  joinedAt: timestamp("joined_at").defaultNow(),
+});
+
+export type OrganizationRole = "admin" | "editor" | "viewer";
+
+// Top-level container for a photographer's job on a property / shoot.
+// Scoped to an org (Phase 1 per PRD) — userId retained as "who created it".
+export const photoProjects = pgTable("photo_projects", {
+  id: serial("id").primaryKey(),
+  orgId: varchar("org_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(),
+  userId: varchar("user_id").references(() => users.id).notNull(), // created_by
+  name: text("name").notNull(),                   // e.g. "123 Main St"
+  addressLine: text("address_line"),              // optional, helps sort/search
+  status: text("status").notNull().default("draft"), // 'draft' | 'ingesting' | 'processing' | 'ready' | 'delivered' | 'archived'
+  settings: json("settings"),                     // per-project overrides (sky preset, style profile id, etc.)
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// A set of photos that belong together as an HDR bracket. Detected
+// heuristically from EXIF (capture time + exposure delta) then optionally
+// confirmed by the user.
+export const bracketGroups = pgTable("bracket_groups", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").references(() => photoProjects.id, { onDelete: "cascade" }).notNull(),
+  captureTimeCenter: timestamp("capture_time_center"), // median capture time across the set
+  photoCount: integer("photo_count").notNull().default(0),
+  status: text("status").notNull().default("detected"), // 'detected' | 'confirmed' | 'merged'
+  mergedAssetId: integer("merged_asset_id"),           // fk to photo_assets.id once merged (self-ref deferred to avoid circular)
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Uploaded or derived photos. Source photos have sourceUrl set and jobId = null.
+// Derived photos (HDR merged, sky-replaced, etc.) have derivedFromJobId set.
+export const photoAssets = pgTable("photo_assets", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").references(() => photoProjects.id, { onDelete: "cascade" }).notNull(),
+  userId: varchar("user_id").references(() => users.id).notNull(), // denormalised for auth queries
+  sourceUrl: text("source_url").notNull(),        // Firebase Storage URL
+  fileName: text("file_name").notNull(),
+  mimeType: text("mime_type").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  widthPx: integer("width_px"),
+  heightPx: integer("height_px"),
+  exifData: json("exif_data"),                    // parsed EXIF: captureTime, exposureTime, iso, fNumber, focalLength, cameraModel, etc.
+  bracketGroupId: integer("bracket_group_id").references(() => bracketGroups.id, { onDelete: "set null" }),
+  derivedFromJobId: integer("derived_from_job_id"), // fk to edit_jobs.id; null for user-uploaded originals
+  isCover: boolean("is_cover").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Async work units — each edit operation is a job the worker picks up.
+export const editJobs = pgTable("edit_jobs", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").references(() => photoProjects.id, { onDelete: "cascade" }).notNull(),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  assetId: integer("asset_id").references(() => photoAssets.id, { onDelete: "cascade" }),          // nullable — for bracket merge jobs the input is bracketGroupId
+  bracketGroupId: integer("bracket_group_id").references(() => bracketGroups.id, { onDelete: "cascade" }),
+  jobType: text("job_type").notNull(),            // MVP: 'hdr_merge' | 'white_balance' | 'perspective' | 'window_pull' | 'sky_replace' | 'enhance' | 'pipeline_auto' — Phase 2 adds 'object_remove' | 'virtual_stage' | 'virtual_twilight'
+  status: text("status").notNull().default("queued"), // 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+  provider: text("provider"),                     // 'local' | 'replicate' | 'gemini' | etc.
+  providerJobId: text("provider_job_id"),
+  inputParams: json("input_params"),              // arbitrary per-job-type params (sky preset, removal mask coords, etc.)
+  outputAssetId: integer("output_asset_id").references(() => photoAssets.id, { onDelete: "set null" }),
+  costCents: integer("cost_cents"),               // our cost (not user price) for telemetry
+  durationMs: integer("duration_ms"),
+  errorMessage: text("error_message"),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Version history per asset. Lets us keep prior edits and show diffs.
+// Watermarked rows are free previews; non-watermarked rows are paid outputs.
+export const editVersions = pgTable("edit_versions", {
+  id: serial("id").primaryKey(),
+  assetId: integer("asset_id").references(() => photoAssets.id, { onDelete: "cascade" }).notNull(),
+  jobId: integer("job_id").references(() => editJobs.id, { onDelete: "set null" }),
+  versionNumber: integer("version_number").notNull(),
+  outputUrl: text("output_url").notNull(),
+  watermarked: boolean("watermarked").default(true),
+  isCurrent: boolean("is_current").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Pay-on-download events. Drives billing; rows here = revenue events.
+export const photoDownloads = pgTable("photo_downloads", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").references(() => photoProjects.id).notNull(),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  versionId: integer("version_id").references(() => editVersions.id).notNull(),
+  creditsCharged: integer("credits_charged").notNull().default(1),
+  stripePaymentIntentId: text("stripe_payment_intent_id"),
+  downloadedAt: timestamp("downloaded_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Saved per-user adjustment preferences ("Style Preferences" in AutoHDR parlance).
+// Lets an account apply consistent looks across shoots.
+export const photoStyleProfiles = pgTable("photo_style_profiles", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  name: text("name").notNull(),
+  isDefault: boolean("is_default").default(false),
+  settings: json("settings").notNull(),           // { brightness, contrast, whiteBalance, vibrance, skyPreset, ... }
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Photo-specific credit ledger, kept SEPARATE from the existing ad-campaign
+// credits on the users table. Prevents conflation of two product lines.
+// Scoped to an org (Phase 1 per PRD) — credits belong to the team, not the
+// individual member who happened to spend them. userId retained for audit.
+export const photoCreditLedger = pgTable("photo_credit_ledger", {
+  id: serial("id").primaryKey(),
+  orgId: varchar("org_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(),
+  userId: varchar("user_id").references(() => users.id),  // audit: who triggered the debit/credit
+  delta: integer("delta").notNull(),              // + for grants/purchases, - for spends
+  balanceAfter: integer("balance_after").notNull(),
+  reason: text("reason").notNull(),               // 'grant' | 'purchase' | 'download' | 'refund' | 'adjustment'
+  refType: text("ref_type"),                      // e.g. 'photo_download' | 'stripe_checkout'
+  refId: text("ref_id"),                          // flexible fk as string
+  stripeChargeId: text("stripe_charge_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// --- Insert schemas + types for photo module ---
+export const insertOrganizationSchema = createInsertSchema(organizations).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const insertOrganizationMemberSchema = createInsertSchema(organizationMembers).omit({
+  id: true,
+  joinedAt: true,
+});
+export const insertPhotoProjectSchema = createInsertSchema(photoProjects).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const insertPhotoAssetSchema = createInsertSchema(photoAssets).omit({
+  id: true,
+  createdAt: true,
+});
+export const insertBracketGroupSchema = createInsertSchema(bracketGroups).omit({
+  id: true,
+  createdAt: true,
+});
+export const insertEditJobSchema = createInsertSchema(editJobs).omit({
+  id: true,
+  createdAt: true,
+  startedAt: true,
+  completedAt: true,
+});
+export const insertEditVersionSchema = createInsertSchema(editVersions).omit({
+  id: true,
+  createdAt: true,
+});
+export const insertPhotoDownloadSchema = createInsertSchema(photoDownloads).omit({
+  id: true,
+  createdAt: true,
+  downloadedAt: true,
+});
+export const insertPhotoStyleProfileSchema = createInsertSchema(photoStyleProfiles).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const insertPhotoCreditLedgerSchema = createInsertSchema(photoCreditLedger).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type Organization = typeof organizations.$inferSelect;
+export type InsertOrganization = z.infer<typeof insertOrganizationSchema>;
+export type OrganizationMember = typeof organizationMembers.$inferSelect;
+export type InsertOrganizationMember = z.infer<typeof insertOrganizationMemberSchema>;
+export type PhotoProject = typeof photoProjects.$inferSelect;
+export type InsertPhotoProject = z.infer<typeof insertPhotoProjectSchema>;
+export type PhotoAsset = typeof photoAssets.$inferSelect;
+export type InsertPhotoAsset = z.infer<typeof insertPhotoAssetSchema>;
+export type BracketGroup = typeof bracketGroups.$inferSelect;
+export type InsertBracketGroup = z.infer<typeof insertBracketGroupSchema>;
+export type EditJob = typeof editJobs.$inferSelect;
+export type InsertEditJob = z.infer<typeof insertEditJobSchema>;
+export type EditVersion = typeof editVersions.$inferSelect;
+export type InsertEditVersion = z.infer<typeof insertEditVersionSchema>;
+export type PhotoDownload = typeof photoDownloads.$inferSelect;
+export type InsertPhotoDownload = z.infer<typeof insertPhotoDownloadSchema>;
+export type PhotoStyleProfile = typeof photoStyleProfiles.$inferSelect;
+export type InsertPhotoStyleProfile = z.infer<typeof insertPhotoStyleProfileSchema>;
+export type PhotoCreditLedgerEntry = typeof photoCreditLedger.$inferSelect;
+export type InsertPhotoCreditLedgerEntry = z.infer<typeof insertPhotoCreditLedgerSchema>;
+
+// Discriminated union of all possible edit job types so workers can switch
+// safely on the jobType string. Kept as string-literal type to stay in sync
+// with the Drizzle text column.
+// MVP set — Phase 2 will extend this with 'object_remove', 'virtual_stage',
+// 'virtual_twilight'. Do not add those here until the workers exist.
+export type EditJobType =
+  | "hdr_merge"
+  | "white_balance"
+  | "perspective"
+  | "window_pull"
+  | "sky_replace"
+  | "enhance"        // brightness/contrast/vibrance/noise reduction pass
+  | "pipeline_auto"; // full auto-pipeline orchestrator
+
+export type PhotoProjectStatus =
+  | "draft"
+  | "ingesting"
+  | "processing"
+  | "ready"
+  | "delivered"
+  | "archived";
+
+// Mirrors edit_jobs.status possible values. Workers move jobs through
+// queued → running → succeeded|failed; cancelled is set if a user aborts
+// before the worker picks it up.
+export type EditJobStatus =
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled";

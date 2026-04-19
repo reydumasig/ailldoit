@@ -36,14 +36,15 @@ export default function TestLearning() {
   const handleRecordPerformance = async () => {
     setIsRecording(true);
     try {
-      await apiRequest(`/api/campaigns/${performanceData.campaignId}/performance`, {
-        method: 'POST',
-        body: JSON.stringify({
+      await apiRequest(
+        'POST',
+        `/api/campaigns/${performanceData.campaignId}/performance`,
+        {
           contentType: performanceData.contentType,
           contentText: performanceData.contentText,
-          metrics: performanceData.metrics
-        })
-      });
+          metrics: performanceData.metrics,
+        },
+      );
 
       toast({
         title: "Performance Recorded",
@@ -62,7 +63,8 @@ export default function TestLearning() {
   const handleLoadAnalytics = async () => {
     setIsLoadingAnalytics(true);
     try {
-      const data = await apiRequest('/api/analytics/performance');
+      const res = await apiRequest('GET', '/api/analytics/performance');
+      const data = await res.json();
       setAnalytics(data);
     } catch (error) {
       toast({

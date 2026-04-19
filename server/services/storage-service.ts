@@ -33,6 +33,9 @@ export class StorageService {
   // Firebase Storage upload
   private async uploadToFirebase(file: Buffer, fileName: string, contentType: string): Promise<string> {
     try {
+      if (!storage) {
+        throw new Error('Firebase Storage is not configured');
+      }
       const bucket = storage.bucket();
       const fileRef = bucket.file(`campaigns/${uuidv4()}-${fileName}`);
       
@@ -83,6 +86,9 @@ export class StorageService {
 
   private async deleteFromFirebase(fileUrl: string): Promise<void> {
     try {
+      if (!storage) {
+        throw new Error('Firebase Storage is not configured');
+      }
       const bucket = storage.bucket();
       const fileName = this.extractFileNameFromUrl(fileUrl);
       await bucket.file(fileName).delete();
@@ -110,6 +116,9 @@ export class StorageService {
   // Generate signed URL for temporary access
   async generateSignedUrl(fileName: string, expiresIn = 3600): Promise<string> {
     if (this.useFirebase) {
+      if (!storage) {
+        throw new Error('Firebase Storage is not configured');
+      }
       const bucket = storage.bucket();
       const file = bucket.file(fileName);
       const [url] = await file.getSignedUrl({

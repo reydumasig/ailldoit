@@ -532,6 +532,26 @@ export class AIService {
     }
   }
 
+  // Generate Real Estate HDR Edits (AutoHDR MVP)
+  async generateRealEstateEdit(brief: string, sourceImageUrls: string[]): Promise<string[]> {
+    console.log(`📸 Starting AutoHDR Real Estate MVP Generation`);
+    console.log(`📸 Source Images Provided: ${sourceImageUrls.length}`);
+    console.log(`📸 Brief: ${brief}`);
+    
+    // For the MVP, we use the text-to-image generateAdImages pipeline with a highly specialized prompt
+    // to simulate the "enhanced" result of the bracketed photos.
+    // In production, this would pipe the sourceImageUrls into a specialized Replicate ControlNet/Image-to-Image model.
+    const enhancedPrompt = `Professional architectural photography, High Dynamic Range (HDR) real estate interior/exterior, perfectly balanced lighting, crystal clear window pulls showing blue sky, vibrant colors, wide angle lens, luxurious feel. Content details: ${brief}`;
+    
+    try {
+      const generatedImages = await this.generateAdImages(enhancedPrompt);
+      return generatedImages;
+    } catch (error) {
+      console.error('AutoHDR MVP generation failed:', error);
+      throw new Error('Failed to generate HDR enhanced image');
+    }
+  }
+
   // Generate videos using Google's Veo 2 (available with regular Gemini API key)
   async generateAdVideosVeo(description: string, style: string = "modern advertising"): Promise<string[]> {
     if (!process.env.GEMINI_API_KEY) {
