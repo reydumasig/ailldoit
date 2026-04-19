@@ -60,6 +60,7 @@ function baseProps(): Record<string, unknown> {
 export type PhotoEvent =
   | "photo_project_created"
   | "photo_assets_uploaded"
+  | "photo_assets_deleted"
   | "photo_bracket_detected"
   | "photo_render_requested"
   | "photo_render_completed"

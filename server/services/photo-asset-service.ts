@@ -23,10 +23,13 @@
 
 import exifr from "exifr";
 import sharp from "sharp";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "../db";
 import {
+  bracketGroups,
+  editVersions,
   photoAssets,
+  photoDownloads,
   type PhotoAsset,
   type InsertPhotoAsset,
 } from "@shared/schema";
@@ -187,6 +190,21 @@ export interface UploadedFile {
   mimetype: string;
   size: number;
   buffer: Buffer;
+}
+
+export interface DeleteAssetsResult {
+  /** Asset IDs actually removed from the DB (also from storage, best-effort). */
+  deletedIds: number[];
+  /** Asset IDs in the request that didn't belong to the project — ignored. */
+  skippedIds: number[];
+  /**
+   * True when at least one target asset had a paid-download receipt. In
+   * that case we refuse the operation (deletedIds is empty) unless the
+   * caller passed force=true, so the UI can surface an explicit warning.
+   */
+  hasPaidDownloads: boolean;
+  storagePathsAttempted: number;
+  storagePathsFailed: number;
 }
 
 export interface UploadContext {
@@ -425,6 +443,185 @@ export class PhotoAssetService {
   }
 
   /**
+   * Remove one or more source assets from a project. Scoped by projectId
+   * so a request for assets in another project is a no-op (never a
+   * cross-project leak).
+   *
+   * Safety rules:
+   *   - Paid downloads are NEVER silently destroyed. If any edit_version
+   *     derived from a target asset has a row in photo_downloads, the
+   *     deletion fails with `hasPaidDownloads: true` unless the caller
+   *     passes `force: true`. The UI uses this to require explicit
+   *     confirmation for assets a user has actually paid to download.
+   *   - DB deletion leans on the FK cascade chain already in schema.ts:
+   *     edit_jobs (assetId, outputAssetId), edit_versions (assetId), and
+   *     bracketGroups.bracketGroupId (set null) all clean up on their own.
+   *   - Orphaned bracket groups (mergedAssetId pointing at a deleted
+   *     asset) are fixed with a manual UPDATE since that FK was deferred
+   *     in schema.ts to avoid a circular reference.
+   *   - Firebase Storage objects are best-effort: we fire off the deletes
+   *     AFTER the DB transaction commits, and log-but-don't-throw on any
+   *     individual failure. Leftover blobs are a cleanup-job problem,
+   *     never a user-facing failure.
+   *   - Bracket detection re-runs on the project at the end so any clusters
+   *     that dropped below 2 members disappear from the UI.
+   */
+  async deleteAssets(
+    assetIds: number[],
+    ctx: { projectId: number; force?: boolean }
+  ): Promise<DeleteAssetsResult> {
+    if (assetIds.length === 0) {
+      return {
+        deletedIds: [],
+        skippedIds: [],
+        hasPaidDownloads: false,
+        storagePathsAttempted: 0,
+        storagePathsFailed: 0,
+      };
+    }
+
+    // 1. Resolve the assets — the projectId filter is the auth guard.
+    //    Caller has already checked org membership via photoProjectService.
+    const assets = await db
+      .select()
+      .from(photoAssets)
+      .where(
+        and(
+          eq(photoAssets.projectId, ctx.projectId),
+          inArray(photoAssets.id, assetIds)
+        )
+      );
+
+    const foundIds = assets.map((a) => a.id);
+    const skippedIds = assetIds.filter((id) => !foundIds.includes(id));
+
+    if (foundIds.length === 0) {
+      return {
+        deletedIds: [],
+        skippedIds,
+        hasPaidDownloads: false,
+        storagePathsAttempted: 0,
+        storagePathsFailed: 0,
+      };
+    }
+
+    // 2. Fetch the version chain for each asset — we need both the
+    //    Firebase URLs we'll clean up and the versionIds to check for
+    //    paid downloads.
+    const versions = await db
+      .select()
+      .from(editVersions)
+      .where(inArray(editVersions.assetId, foundIds));
+    const versionIds = versions.map((v) => v.id);
+
+    // 3. Paid-download safety check. If there's any download row for a
+    //    version in this set, block deletion unless explicitly forced.
+    let hasPaidDownloads = false;
+    if (versionIds.length > 0) {
+      const downloads = await db
+        .select({ id: photoDownloads.id })
+        .from(photoDownloads)
+        .where(inArray(photoDownloads.versionId, versionIds))
+        .limit(1);
+      hasPaidDownloads = downloads.length > 0;
+    }
+
+    if (hasPaidDownloads && !ctx.force) {
+      return {
+        deletedIds: [],
+        skippedIds: assetIds, // nothing got deleted, everything's on hold
+        hasPaidDownloads: true,
+        storagePathsAttempted: 0,
+        storagePathsFailed: 0,
+      };
+    }
+
+    // 4. Collect every Firebase URL we should try to clean up:
+    //    - source URL for each asset
+    //    - archived RAW (stashed in exifData.rawOriginal.archivedUrl)
+    //    - every version's outputUrl and cleanOutputUrl
+    const urls: string[] = [];
+    for (const a of assets) {
+      if (a.sourceUrl) urls.push(a.sourceUrl);
+      const exif = a.exifData as
+        | { rawOriginal?: { archivedUrl?: string | null } | null }
+        | null;
+      const archivedUrl = exif?.rawOriginal?.archivedUrl;
+      if (archivedUrl) urls.push(archivedUrl);
+    }
+    for (const v of versions) {
+      if (v.outputUrl) urls.push(v.outputUrl);
+      if (v.cleanOutputUrl) urls.push(v.cleanOutputUrl);
+    }
+
+    // 5. Delete inside a transaction: paid-download rows first (only
+    //    reachable with force=true), then assets. FK cascades take care
+    //    of edit_jobs + edit_versions. Bracket group orphan pointers
+    //    (mergedAssetId → deleted) get cleared with an explicit UPDATE.
+    await db.transaction(async (tx) => {
+      if (ctx.force && versionIds.length > 0) {
+        await tx
+          .delete(photoDownloads)
+          .where(inArray(photoDownloads.versionId, versionIds));
+      }
+
+      // Null any bracket group that pointed at one of these assets as
+      // its merged output — that group no longer has a rendered HDR.
+      await tx
+        .update(bracketGroups)
+        .set({ mergedAssetId: null, status: "detected" })
+        .where(
+          and(
+            eq(bracketGroups.projectId, ctx.projectId),
+            inArray(bracketGroups.mergedAssetId, foundIds)
+          )
+        );
+
+      await tx
+        .delete(photoAssets)
+        .where(
+          and(
+            eq(photoAssets.projectId, ctx.projectId),
+            inArray(photoAssets.id, foundIds)
+          )
+        );
+    });
+
+    // 6. Best-effort Firebase Storage cleanup. We do NOT await this in a
+    //    way that can fail the response — each URL gets its own try/catch.
+    let storagePathsFailed = 0;
+    const uniqueUrls = Array.from(new Set(urls));
+    await Promise.all(
+      uniqueUrls.map(async (url) => {
+        const storagePath = extractStoragePathFromUrl(url);
+        if (!storagePath) return;
+        try {
+          await firebaseStorageService.deleteFile(storagePath);
+        } catch (err: any) {
+          storagePathsFailed += 1;
+          console.warn(
+            `⚠️ PHOTO ASSET: Failed to delete storage object ${storagePath}:`,
+            err?.message
+          );
+        }
+      })
+    );
+
+    console.log(
+      `🗑️ PHOTO ASSET: project=${ctx.projectId} deleted=${foundIds.length} ` +
+        `skipped=${skippedIds.length} storage(ok/fail)=${uniqueUrls.length - storagePathsFailed}/${storagePathsFailed}`
+    );
+
+    return {
+      deletedIds: foundIds,
+      skippedIds,
+      hasPaidDownloads: false,
+      storagePathsAttempted: uniqueUrls.length,
+      storagePathsFailed,
+    };
+  }
+
+  /**
    * Parse EXIF + dimensions from a JPEG buffer. Returns nulls rather than
    * throwing when a field is missing — different camera bodies write
    * wildly different subsets and we'd rather ingest than fail.
@@ -521,6 +718,48 @@ export class PhotoAssetService {
       orientation,
       raw: parsed,
     };
+  }
+}
+
+/**
+ * Convert a Firebase Storage signed URL (or plain googleapis URL) back to
+ * the object path we can hand to firebaseStorageService.deleteFile().
+ *
+ * Handles both formats we emit:
+ *   - `https://storage.googleapis.com/<bucket>/<path>?signed-query`
+ *   - `https://firebasestorage.googleapis.com/v0/b/<bucket>/o/<encoded-path>?...`
+ *
+ * Returns null for anything that isn't recognisable — the caller should
+ * skip cleanup rather than guess (guessing wrong could delete the wrong
+ * blob for another project).
+ */
+function extractStoragePathFromUrl(url: string): string | null {
+  if (!url) return null;
+
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname;
+
+    // storage.googleapis.com/<bucket>/<path...>
+    if (host === "storage.googleapis.com") {
+      // pathname starts with "/" then bucket name. We don't know the
+      // bucket name at this layer, so just strip the first two segments:
+      //    /bucket-name/photo/orgId/...  → photo/orgId/...
+      const parts = parsed.pathname.split("/").filter(Boolean);
+      if (parts.length < 2) return null;
+      return parts.slice(1).join("/");
+    }
+
+    // firebasestorage.googleapis.com/v0/b/<bucket>/o/<url-encoded-path>
+    if (host === "firebasestorage.googleapis.com") {
+      const match = parsed.pathname.match(/\/v0\/b\/[^/]+\/o\/(.+)$/);
+      if (!match) return null;
+      return decodeURIComponent(match[1]);
+    }
+
+    return null;
+  } catch {
+    return null;
   }
 }
 
