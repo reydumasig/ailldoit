@@ -1888,13 +1888,35 @@ ${campaign.brief}`;
   });
 
   app.post('/api/webhooks/stripe', async (req, res) => {
+    // `req.body` is a Buffer here because we mount `express.raw()` on this
+    // path in server/index.ts. Signature verification REQUIRES the raw
+    // bytes — if the body arrived as a parsed object we'd silently reject
+    // every event.
+    const signature = req.headers['stripe-signature'] as string | undefined;
+    if (!signature) {
+      console.error('❌ STRIPE WEBHOOK: missing stripe-signature header');
+      return res.status(400).send('Missing signature');
+    }
+    if (!Buffer.isBuffer(req.body)) {
+      console.error(
+        '❌ STRIPE WEBHOOK: body is not a Buffer — raw body middleware is not wired (did someone move express.json above the webhook mount?)'
+      );
+      return res.status(500).send('Webhook misconfiguration');
+    }
+
     try {
-      const signature = req.headers['stripe-signature'] as string;
-      const { subscriptionService } = await import("./services/subscription-service");
+      const { subscriptionService } = await import('./services/subscription-service');
       await subscriptionService.handleWebhook(signature, req.body);
       res.status(200).send('OK');
-    } catch (error) {
-      console.error('Webhook error:', error);
+    } catch (error: any) {
+      // Log the full error — signature failures, missing env secret, and
+      // handler crashes all land here. Without the detail we can't
+      // distinguish "Stripe is configured wrong" from "our code blew up."
+      console.error(
+        '❌ STRIPE WEBHOOK: handler failed:',
+        error?.message ?? error,
+        error?.stack ?? ''
+      );
       res.status(400).send('Webhook Error');
     }
   });

@@ -8,6 +8,18 @@ import { startPhotoWorker } from "./workers/photo-worker";
 config();
 
 const app = express();
+
+// Stripe webhooks MUST receive the raw body bytes so
+// `stripe.webhooks.constructEvent` can verify the signature. Mount
+// express.raw on this specific path BEFORE express.json() so the JSON
+// parser doesn't consume the body first — otherwise `req.body` becomes a
+// parsed object, signature verification fails, and every webhook returns
+// 400 silently (symptom: Stripe Checkout succeeds but credits never land).
+app.use(
+  '/api/webhooks/stripe',
+  express.raw({ type: 'application/json', limit: '2mb' })
+);
+
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: false, limit: '50mb' }));
 
