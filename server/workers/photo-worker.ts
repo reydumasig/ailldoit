@@ -21,6 +21,8 @@ import type { EditJob } from "@shared/schema";
 import { PHOTO_QUEUE_NAME, type PhotoJobName, type PhotoJobPayload } from "../queues/photo-queue";
 import { createRedisClient } from "../queues/redis-connection";
 import { editJobService } from "../services/edit-job-service";
+import { captureUnknown } from "../observability/sentry";
+import { track as trackEvent } from "../observability/posthog";
 import { handlePipelineAuto, type HandlerResult } from "./handlers/pipeline-auto";
 import { handleHdrMerge } from "./handlers/hdr-merge";
 import { handleEnhance } from "./handlers/enhance";
@@ -83,9 +85,34 @@ export function startPhotoWorker(): WorkerHandle {
           costCents: result.costCents ?? null,
           durationMs: result.durationMs ?? null,
         });
+        // Render-complete funnel event. Emit after the DB row is marked
+        // succeeded so the dashboard agrees with the ledger.
+        trackEvent("photo_render_completed", {
+          userId: dbJob.userId ?? null,
+          props: {
+            edit_job_id: editJobId,
+            project_id: dbJob.projectId,
+            job_type: job.name,
+            cost_cents: result.costCents ?? null,
+            duration_ms: result.durationMs ?? null,
+          },
+        });
         return result;
       } catch (err: any) {
         await editJobService.markFailed(editJobId, err?.message ?? String(err));
+        // Render-failed funnel event. Separate from Sentry — Sentry tracks
+        // the error shape (stack, tags), PostHog tracks the funnel drop-off
+        // (how many renders fail per user / per org / per job type).
+        trackEvent("photo_render_failed", {
+          userId: dbJob.userId ?? null,
+          props: {
+            edit_job_id: editJobId,
+            project_id: dbJob.projectId,
+            job_type: job.name,
+            error_message: err?.message ?? String(err),
+            attempts_made: job.attemptsMade,
+          },
+        });
         throw err; // let BullMQ retry per defaultJobOptions
       }
     },
@@ -101,6 +128,17 @@ export function startPhotoWorker(): WorkerHandle {
       `❌ PHOTO WORKER: job ${job?.id} (${job?.name}) failed:`,
       err?.message ?? err
     );
+    // Send failed jobs to Sentry with enough context to debug without
+    // cross-referencing the DB: jobId, jobType, editJobId, attempt count.
+    // BullMQ retries via defaultJobOptions, so a single Sentry issue may
+    // represent N attempts — use the attempt tag to spot flaky vs. busted.
+    captureUnknown(err, {
+      source: "photo_worker",
+      jobId: job?.id,
+      jobName: job?.name,
+      editJobId: job?.data?.editJobId,
+      attemptsMade: job?.attemptsMade,
+    });
   });
 
   worker.on("completed", (job, result) => {
@@ -111,8 +149,10 @@ export function startPhotoWorker(): WorkerHandle {
 
   worker.on("error", (err) => {
     // Connection errors, shutdown-during-work, etc. Don't crash the
-    // process — BullMQ will reconnect.
+    // process — BullMQ will reconnect. But DO send to Sentry so we see
+    // recurring redis flakiness, auth drift, etc.
     console.error("⚠️ PHOTO WORKER: worker error:", err?.message ?? err);
+    captureUnknown(err, { source: "photo_worker", kind: "worker_error" });
   });
 
   return {

@@ -2,6 +2,9 @@ export interface EnvironmentConfig {
   isDevelopment: boolean;
   isProduction: boolean;
   domain: string;
+  /** Release tag (git sha or app version). Sent to Sentry so we can pin
+   * errors to a deploy. Empty string means "don't tag a release." */
+  releaseTag: string;
   stripe: {
     secretKey: string;
     publicKey: string;
@@ -16,6 +19,20 @@ export interface EnvironmentConfig {
     photoAgencyPackPriceId: string;    // agency  pack (e.g. 2000 credits)
     webhookSecret: string;
   };
+  /**
+   * Observability. Both providers follow the same "cloud-services-off-by-default"
+   * pattern — empty string means the SDK noops, so local development doesn't
+   * leak test data into prod dashboards. Populate the envs in prod to turn them on.
+   */
+  sentry: {
+    dsn: string;                // empty = disabled (noop client)
+    tracesSampleRate: number;   // 0..1 — how much perf tracing to sample
+    environment: string;        // "production" | "staging" | "development"
+  };
+  posthog: {
+    apiKey: string;             // empty = disabled (server-side noop)
+    host: string;               // usually https://us.i.posthog.com
+  };
 }
 
 export function getEnvironmentConfig(): EnvironmentConfig {
@@ -29,10 +46,17 @@ export function getEnvironmentConfig(): EnvironmentConfig {
   // Use live keys for production domain, test keys for development
   const useTestKeys = isDevelopment || !isLiveDomain;
 
+  // Release tag: prefer an explicit SENTRY_RELEASE env (set by CI to the git
+  // sha), fall back to GIT_SHA, else empty. Avoid calling `git rev-parse` at
+  // runtime — the container doesn't ship with git.
+  const releaseTag =
+    process.env.SENTRY_RELEASE ?? process.env.GIT_SHA ?? "";
+
   return {
     isDevelopment,
     isProduction,
     domain,
+    releaseTag,
     stripe: {
       secretKey: useTestKeys 
         ? process.env.STRIPE_SECRET_KEY! 
@@ -62,6 +86,25 @@ export function getEnvironmentConfig(): EnvironmentConfig {
       webhookSecret: useTestKeys
         ? process.env.STRIPE_WEBHOOK_SECRET!
         : process.env.STRIPE_LIVE_WEBHOOK_SECRET!
+    },
+    sentry: {
+      // Server DSN only — the client uses VITE_SENTRY_DSN (exposed to browser).
+      // Sentry treats empty DSN as "disable" which is exactly the dev default.
+      dsn: process.env.SENTRY_DSN ?? "",
+      // 10% tracing by default — enough to spot regressions without billing
+      // us into oblivion. Bump via env if a real issue needs deeper insight.
+      tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE ?? "0.1"),
+      environment: isProduction
+        ? (isLiveDomain ? "production" : "staging")
+        : "development",
+    },
+    posthog: {
+      // Server-side PostHog. The server-side key is separate from
+      // VITE_POSTHOG_KEY (which is public, shipped to browser). We capture
+      // billing-critical events server-side so they can't be tampered with
+      // or blocked by ad blockers.
+      apiKey: process.env.POSTHOG_API_KEY ?? "",
+      host: process.env.POSTHOG_HOST ?? "https://us.i.posthog.com",
     }
   };
 }

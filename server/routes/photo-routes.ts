@@ -17,6 +17,8 @@ import archiver from "archiver";
 import { Readable } from "node:stream";
 import { z } from "zod";
 import { authenticateToken } from "../middleware/auth";
+import { setRequestUser } from "../observability/sentry";
+import { track as trackEvent } from "../observability/posthog";
 import { organizationService } from "../services/organization-service";
 import { photoProjectService } from "../services/photo-project-service";
 import { photoAssetService } from "../services/photo-asset-service";
@@ -37,18 +39,34 @@ import {
 } from "../services/photo-download-service";
 
 // Uploads are held in memory so we can pipe buffers to Firebase Storage
-// without a disk hop. 25MB per file (pro-camera JPEGs run 8–20MB), up to
-// 40 files per request (covers a full bracketed property shoot).
+// without a disk hop. 120MB per file — pro JPEGs run 8–20MB, but RAW files
+// (CR3, DNG, NEF, ARW, RAF) can easily hit 60–90MB. 40 files per request
+// covers a full bracketed property shoot.
+//
+// RAW note: browsers don't always send a useful mimetype for RAW (often
+// "application/octet-stream"), so we also match by extension. Accepted
+// formats — JPEG, PNG, HEIC/HEIF, plus RAW: CR2/CR3 (Canon), DNG (Adobe),
+// NEF (Nikon), ARW (Sony), RAF (Fuji), ORF (Olympus), RW2 (Panasonic).
+const RAW_EXT_RE = /\.(cr2|cr3|dng|nef|arw|raf|orf|rw2)$/i;
+const STANDARD_IMAGE_MIME_RE = /^image\/(jpe?g|png|heic|heif)$/i;
+const RAW_MIME_RE =
+  /^image\/(x-canon-cr[23]|x-adobe-dng|x-nikon-nef|x-sony-arw|x-fuji-raf|x-olympus-orf|x-panasonic-rw2)$/i;
+
 const uploadMemory = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 25 * 1024 * 1024,
+    fileSize: 120 * 1024 * 1024,
     files: 40,
   },
   fileFilter: (_req, file, cb) => {
-    const ok = /^image\/(jpe?g|png|heic|heif)$/i.test(file.mimetype);
+    const mime = file.mimetype || "";
+    const name = file.originalname || "";
+    const ok =
+      STANDARD_IMAGE_MIME_RE.test(mime) ||
+      RAW_MIME_RE.test(mime) ||
+      RAW_EXT_RE.test(name);
     if (!ok) {
-      return cb(new Error(`Unsupported file type: ${file.mimetype}`));
+      return cb(new Error(`Unsupported file type: ${mime || name}`));
     }
     cb(null, true);
   },
@@ -78,6 +96,14 @@ router.use(async (req: Request, res: Response, next) => {
       return res.status(401).json({ message: "Authentication required" });
     }
     req.orgId = await organizationService.resolveActiveOrgId(req.user.id);
+    // Tag Sentry's request scope with orgId — auth middleware already set
+    // userId + email. With both tags, issues in the Sentry dashboard can
+    // be sliced by org (e.g. "show me everything failing for Acme Realty").
+    setRequestUser({
+      userId: req.user.id,
+      email: req.user.email,
+      orgId: req.orgId,
+    });
     next();
   } catch (error: any) {
     console.error("❌ PHOTO: Failed to resolve active org", error);
@@ -125,6 +151,11 @@ router.post("/projects", async (req: Request, res: Response) => {
       name: parse.data.name,
       addressLine: parse.data.addressLine ?? null,
       settings: parse.data.settings ?? null,
+    });
+    trackEvent("photo_project_created", {
+      userId: req.user!.id,
+      orgId: req.orgId!,
+      props: { project_id: project.id, has_address: !!parse.data.addressLine },
     });
     res.status(201).json({ project });
   } catch (error: any) {
@@ -225,6 +256,27 @@ router.post(
           "⚠️ PHOTO: Bracket detection failed post-upload — user can retry manually:",
           detectErr?.message
         );
+      }
+
+      trackEvent("photo_assets_uploaded", {
+        userId: req.user!.id,
+        orgId: req.orgId!,
+        props: {
+          project_id: projectId,
+          uploaded: assets.length,
+          failed: errors.length,
+        },
+      });
+      if (brackets && brackets.groupsCreated > 0) {
+        trackEvent("photo_bracket_detected", {
+          userId: req.user!.id,
+          orgId: req.orgId!,
+          props: {
+            project_id: projectId,
+            groups_created: brackets.groupsCreated,
+            assets_grouped: brackets.assetsGrouped,
+          },
+        });
       }
 
       res.status(201).json({
@@ -402,6 +454,17 @@ router.post(
 
       const { jobId } = await enqueuePhotoJob("pipeline_auto", {
         editJobId: editJob.id,
+      });
+
+      trackEvent("photo_render_requested", {
+        userId: req.user!.id,
+        orgId: req.orgId!,
+        props: {
+          project_id: projectId,
+          bracket_group_id: groupId,
+          edit_job_id: editJob.id,
+          job_type: "pipeline_auto",
+        },
       });
 
       res.status(202).json({ editJob, queueJobId: jobId });
@@ -622,11 +685,29 @@ router.post(
         return res.status(404).json({ message: "Project not found" });
       }
 
+      trackEvent("photo_unlock_attempted", {
+        userId: req.user!.id,
+        orgId: req.orgId!,
+        props: { project_id: projectId, version_id: versionId, mode: "single" },
+      });
+
       const result = await photoDownloadService.unlock({
         orgId: req.orgId!,
         userId: req.user!.id,
         projectId,
         versionId,
+      });
+
+      trackEvent("photo_unlock_succeeded", {
+        userId: req.user!.id,
+        orgId: req.orgId!,
+        props: {
+          project_id: projectId,
+          version_id: versionId,
+          charged: result.charged,
+          balance_after: result.balanceAfter,
+          mode: "single",
+        },
       });
 
       res.json({
@@ -638,6 +719,17 @@ router.post(
       });
     } catch (error: any) {
       if (error instanceof InsufficientCreditsError) {
+        trackEvent("photo_unlock_insufficient_credits", {
+          userId: req.user!.id,
+          orgId: req.orgId!,
+          props: {
+            project_id: projectId,
+            version_id: versionId,
+            required: error.required,
+            available: error.available,
+            mode: "single",
+          },
+        });
         return res.status(402).json({
           message: "Insufficient credits — top up to unlock this version.",
           required: error.required,
@@ -729,12 +821,46 @@ router.post(
         });
       }
 
+      trackEvent("photo_unlock_attempted", {
+        userId: req.user!.id,
+        orgId: req.orgId!,
+        props: {
+          project_id: projectId,
+          version_count: parsed.data.versionIds.length,
+          mode: "batch",
+        },
+      });
+
       const { results, insufficient } = await photoDownloadService.unlockBatch({
         orgId: req.orgId!,
         userId: req.user!.id,
         projectId,
         versionIds: parsed.data.versionIds,
       });
+
+      const charged = results.filter((r) => r.charged).length;
+      trackEvent("photo_unlock_succeeded", {
+        userId: req.user!.id,
+        orgId: req.orgId!,
+        props: {
+          project_id: projectId,
+          version_count: results.length,
+          charged_count: charged,
+          mode: "batch",
+        },
+      });
+      if (insufficient) {
+        trackEvent("photo_unlock_insufficient_credits", {
+          userId: req.user!.id,
+          orgId: req.orgId!,
+          props: {
+            project_id: projectId,
+            required: insufficient.required,
+            available: insufficient.available,
+            mode: "batch",
+          },
+        });
+      }
 
       const balance = await photoCreditService.getBalance(req.orgId!);
       res.json({
@@ -822,6 +948,16 @@ router.get(
         });
       }
 
+      trackEvent("photo_batch_download_started", {
+        userId: req.user!.id,
+        orgId: req.orgId!,
+        props: {
+          project_id: projectId,
+          version_count: plan.alreadyUnlocked.length,
+          requested_count: versionIds.length,
+        },
+      });
+
       // Stream the zip. `archiver` pipes straight to the Express response
       // so memory stays bounded regardless of how many MB we're shipping.
       res.setHeader("Content-Type", "application/zip");
@@ -890,6 +1026,14 @@ router.get(
       }
 
       await archive.finalize();
+      trackEvent("photo_download_completed", {
+        userId: req.user!.id,
+        orgId: req.orgId!,
+        props: {
+          project_id: projectId,
+          version_count: plan.alreadyUnlocked.length,
+        },
+      });
     } catch (error: any) {
       if (error.statusCode) {
         return res.status(error.statusCode).json({ message: error.message });

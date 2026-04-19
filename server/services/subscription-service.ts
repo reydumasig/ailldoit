@@ -1,10 +1,7 @@
 import Stripe from 'stripe';
 import { storage } from '../storage';
 import { ENV } from '../config/environment';
-
-const stripe = new Stripe(ENV.stripe.secretKey, {
-  apiVersion: '2025-08-27.basil',
-});
+import { getStripe } from '../config/stripe-client';
 
 export interface SubscriptionPlan {
   id: string;
@@ -79,7 +76,7 @@ class SubscriptionService {
     if (user?.stripeCustomerId) {
       try {
         // Verify the customer exists in Stripe
-        await stripe.customers.retrieve(user.stripeCustomerId);
+        await getStripe().customers.retrieve(user.stripeCustomerId);
         return user.stripeCustomerId;
       } catch (error: any) {
         console.log('🔄 Customer not found in Stripe, creating new one:', user.stripeCustomerId);
@@ -89,7 +86,7 @@ class SubscriptionService {
     }
 
     // Create new Stripe customer
-    const customer = await stripe.customers.create({
+    const customer = await getStripe().customers.create({
       email,
       metadata: { userId }
     });
@@ -117,7 +114,7 @@ class SubscriptionService {
       const customerId = await this.createOrRetrieveCustomer(userId, user.email);
       console.log('✅ Customer ID obtained:', customerId);
 
-      const subscription = await stripe.subscriptions.create({
+      const subscription = await getStripe().subscriptions.create({
         customer: customerId,
         items: [{ price: priceId }],
         payment_behavior: 'default_incomplete',
@@ -140,7 +137,7 @@ class SubscriptionService {
       
       if (!paymentIntent && invoice.status === 'open') {
         console.log('🔄 Creating payment intent for invoice:', invoice.id);
-        paymentIntent = await stripe.paymentIntents.create({
+        paymentIntent = await getStripe().paymentIntents.create({
           amount: invoice.amount_due,
           currency: invoice.currency,
           customer: customerId,
@@ -195,7 +192,7 @@ class SubscriptionService {
   }
 
   async handleWebhook(signature: string, body: Buffer): Promise<void> {
-    const event = stripe.webhooks.constructEvent(body, signature, ENV.stripe.webhookSecret);
+    const event = getStripe().webhooks.constructEvent(body, signature, ENV.stripe.webhookSecret);
 
     // Photo module's one-time credit pack purchases ride the same webhook
     // endpoint. Delegate FIRST so photo events never accidentally touch the
@@ -240,7 +237,7 @@ class SubscriptionService {
   }
 
   private async updateUserSubscription(subscription: Stripe.Subscription): Promise<void> {
-    const customer = await stripe.customers.retrieve(subscription.customer as string);
+    const customer = await getStripe().customers.retrieve(subscription.customer as string);
     if (customer.deleted) return;
 
     const userId = customer.metadata?.userId;
@@ -262,7 +259,7 @@ class SubscriptionService {
   }
 
   private async cancelUserSubscription(subscription: Stripe.Subscription): Promise<void> {
-    const customer = await stripe.customers.retrieve(subscription.customer as string);
+    const customer = await getStripe().customers.retrieve(subscription.customer as string);
     if (customer.deleted) return;
 
     const userId = customer.metadata?.userId;
@@ -279,8 +276,8 @@ class SubscriptionService {
   }
 
   private async resetUserCredits(subscriptionId: string): Promise<void> {
-    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-    const customer = await stripe.customers.retrieve(subscription.customer as string);
+    const subscription = await getStripe().subscriptions.retrieve(subscriptionId);
+    const customer = await getStripe().customers.retrieve(subscription.customer as string);
     if (customer.deleted) return;
 
     const userId = customer.metadata?.userId;
@@ -296,8 +293,8 @@ class SubscriptionService {
   }
 
   private async handleFailedPayment(subscriptionId: string): Promise<void> {
-    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-    const customer = await stripe.customers.retrieve(subscription.customer as string);
+    const subscription = await getStripe().subscriptions.retrieve(subscriptionId);
+    const customer = await getStripe().customers.retrieve(subscription.customer as string);
     if (customer.deleted) return;
 
     const userId = customer.metadata?.userId;
@@ -364,7 +361,7 @@ class SubscriptionService {
       throw new Error('No active subscription found');
     }
 
-    await stripe.subscriptions.cancel(user.stripeSubscriptionId);
+    await getStripe().subscriptions.cancel(user.stripeSubscriptionId);
   }
 
   async createPortalSession(userId: string, returnUrl: string): Promise<string> {
@@ -373,7 +370,7 @@ class SubscriptionService {
       throw new Error('No Stripe customer found');
     }
 
-    const session = await stripe.billingPortal.sessions.create({
+    const session = await getStripe().billingPortal.sessions.create({
       customer: user.stripeCustomerId,
       return_url: returnUrl,
     });

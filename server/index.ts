@@ -1,13 +1,29 @@
 import { config } from 'dotenv';
+// Load environment variables BEFORE importing anything that reads process.env
+// at module load (Sentry DSN, Stripe client, etc).
+config();
+
+// Sentry MUST init before any http/undici consumer is constructed — its
+// auto-instrumentation patches the network libs on init, and anything
+// constructed earlier (an http.Agent, a Stripe client's fetch, etc.) would
+// miss that patch. Keep this import/init at the very top of server boot.
+import { initSentry, Sentry, isSentryEnabled } from "./observability/sentry";
+initSentry();
+// PostHog init is order-insensitive (no network patching), but we start it
+// here so the funnel is live before the first route handler runs.
+import { initPostHog, shutdownPostHog } from "./observability/posthog";
+initPostHog();
+
 import express from "express";
 import http from "http";
 import { registerRoutes } from "./routes";
 import { startPhotoWorker } from "./workers/photo-worker";
 
-// Load environment variables
-config();
-
 const app = express();
+
+// In Sentry v10 the request + tracing handlers are wired automatically by
+// `expressIntegration()` (set up during Sentry.init). We only need to mount
+// the error handler manually, and we do that AFTER routes register below.
 
 // Stripe webhooks MUST receive the raw body bytes so
 // `stripe.webhooks.constructEvent` can verify the signature. Mount
@@ -66,10 +82,16 @@ app.use((req, res, next) => {
 (async () => {
   // CRITICAL: Set up static file serving BEFORE routes to avoid middleware conflicts
   let httpServer;
-  
+
   if (process.env.NODE_ENV === 'development') {
     console.log('🔧 DEVELOPMENT: Setting up Vite...');
     httpServer = await registerRoutes(app);
+    // Sentry error handler must sit between the API routes and vite's
+    // middleware so 5xx responses from our endpoints get captured before
+    // the SPA-catch-all sends them to the browser as "something broke."
+    if (isSentryEnabled()) {
+      Sentry.setupExpressErrorHandler(app);
+    }
     const { setupVite } = await import("./vite");
     await setupVite(app, httpServer);
   } else {
@@ -77,25 +99,32 @@ app.use((req, res, next) => {
     // Production static file serving - BEFORE routes registration
     const path = await import("path");
     const fs = await import("fs");
-    
+
     const distPath = path.resolve(process.cwd(), "dist/public");
     console.log('📁 Static files path:', distPath);
-    
+
     if (!fs.existsSync(distPath)) {
       throw new Error(`Could not find the build directory: ${distPath}, make sure to build the client first`);
     }
-    
+
     // Serve static assets first (CSS, JS, images)
     app.use('/assets', express.static(path.join(distPath, 'assets')));
     app.use(express.static(distPath));
     console.log('✅ Static file serving configured BEFORE routes');
-    
+
     httpServer = await registerRoutes(app);
 
-    const { setupVite } = await import("./vite");
-    await setupVite(app, httpServer);
-    
-    // Catch-all route for SPA - AFTER all API routes
+    // Error handler AFTER routes, BEFORE the SPA catch-all. Captures any
+    // unhandled exception from an API route into Sentry (+ the default
+    // 500 JSON response the app's own middleware sends).
+    if (isSentryEnabled()) {
+      Sentry.setupExpressErrorHandler(app);
+    }
+
+    // Catch-all route for SPA - AFTER all API routes. Serves index.html for
+    // any non-API path so client-side routing (wouter) can resolve it. Never
+    // call setupVite here — that's the dev HMR server and has no business
+    // running in production.
     app.use("*", (_req, res) => {
       res.sendFile(path.resolve(distPath, "index.html"));
     });
@@ -132,6 +161,15 @@ app.use((req, res, next) => {
     } catch (err: any) {
       console.error("⚠️ SERVER: worker stop errored:", err?.message ?? err);
     }
+    // Flush PostHog before the process exits — Cloud Run gives us ~10s
+    // between SIGTERM and SIGKILL and we'd otherwise lose the last batch
+    // of funnel events (which is exactly the user whose session is being
+    // disrupted by the scale-down — the interesting one).
+    try {
+      await shutdownPostHog();
+    } catch (err: any) {
+      console.error("⚠️ SERVER: posthog shutdown errored:", err?.message ?? err);
+    }
     httpServer.close(() => {
       console.log("👋 SERVER: closed HTTP server, bye");
       process.exit(0);
@@ -141,4 +179,30 @@ app.use((req, res, next) => {
   };
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
+
+  // Process-level error capture. Without these, an unhandled promise
+  // rejection from a background task (e.g., a post-response writeback)
+  // would silently bypass Sentry. We don't exit — Node's default is to
+  // log and continue, which matches what we want here.
+  process.on("unhandledRejection", (reason, promise) => {
+    console.error("❌ UNHANDLED REJECTION:", reason);
+    if (isSentryEnabled()) {
+      Sentry.captureException(reason, {
+        tags: { origin: "unhandledRejection" },
+        extra: { promise: String(promise) },
+      });
+    }
+  });
+
+  process.on("uncaughtException", (err) => {
+    console.error("❌ UNCAUGHT EXCEPTION:", err);
+    if (isSentryEnabled()) {
+      Sentry.captureException(err, {
+        tags: { origin: "uncaughtException" },
+      });
+    }
+    // Exit after capture — an uncaught exception means app state is suspect.
+    // Sentry will flush via its before-exit hook. Give it a short window.
+    setTimeout(() => process.exit(1), 2000).unref();
+  });
 })();

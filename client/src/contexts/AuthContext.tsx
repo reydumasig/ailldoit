@@ -11,6 +11,8 @@ import {
 import { auth } from '@/config/firebase';
 import type { Auth } from 'firebase/auth';
 import { apiRequest } from '@/lib/queryClient';
+import { identifyUser } from '@/lib/sentry';
+import { identifyUser as identifyPosthogUser } from '@/lib/posthog';
 
 interface AuthUser {
   id: string;
@@ -114,6 +116,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             console.log('✅ User verified successfully:', userData.email, 'User ID:', userData.id);
             
             setUser(userData);
+            // Tag Sentry events with userId so issues can be sliced by
+            // customer. orgId is tagged server-side per-request; on the
+            // client we only know the user until an org-specific page
+            // resolves its own context (which happens lazily).
+            identifyUser({
+              userId: userData.id,
+              email: userData.email,
+            });
+            identifyPosthogUser({
+              userId: userData.id,
+              email: userData.email,
+            });
           } catch (fetchError: any) {
             clearTimeout(timeoutId);
             if (fetchError.name === 'AbortError') {
@@ -125,6 +139,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } else {
           console.log('👤 No Firebase user, showing login');
           setUser(null);
+          identifyUser({ userId: null, email: null });
+          identifyPosthogUser({ userId: null, email: null });
         }
       } catch (error: any) {
         console.error('❌ Auth state change error:', error);
@@ -224,6 +240,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await firebaseSignOut(auth);
       setUser(null);
       setLoading(false);
+      identifyUser({ userId: null, email: null });
+      identifyPosthogUser({ userId: null, email: null });
       console.log('✅ User signed out successfully');
     } catch (error) {
       console.error('❌ Sign out error:', error);

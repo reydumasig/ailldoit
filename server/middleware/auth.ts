@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { admin } from '../config/firebase-admin';
 import { storage } from '../storage';
+import { setRequestUser } from '../observability/sentry';
+import { identify as posthogIdentify } from '../observability/posthog';
 
 // Extend Express Request to include user
 declare global {
@@ -69,6 +71,17 @@ export async function authenticateToken(req: Request, res: Response, next: NextF
       email: user.email,
       firebaseUid: user.firebaseUid!,
     };
+
+    // Tag Sentry's per-request scope with the user so any subsequent
+    // exception from this request is attributed. orgId is set later by
+    // `resolveOrg` middleware which runs after auth on photo routes —
+    // that middleware makes its own setRequestUser call with orgId once
+    // it's known.
+    setRequestUser({ userId: user.id, email: user.email });
+    // Tie this user id to a PostHog profile so the funnel events we
+    // subsequently emit land on the same person across sessions. Cheap —
+    // noop when POSTHOG_API_KEY isn't set.
+    posthogIdentify({ userId: user.id, email: user.email });
 
     const duration = Date.now() - startTime;
     console.log('✅ AUTH MIDDLEWARE: Authentication completed in', duration, 'ms for user:', user.id);
