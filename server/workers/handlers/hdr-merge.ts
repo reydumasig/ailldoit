@@ -55,6 +55,7 @@ export async function handleHdrMerge(job: EditJob): Promise<HandlerResult> {
     .from(bracketGroups)
     .where(eq(bracketGroups.id, job.bracketGroupId));
   if (!group) throw new Error(`Bracket group ${job.bracketGroupId} not found`);
+  console.log(`🎞️  HDR_MERGE: hydrated bracket=${group.id} status=${group.status}`);
 
   const members = await db
     .select()
@@ -71,6 +72,9 @@ export async function handleHdrMerge(job: EditJob): Promise<HandlerResult> {
       `Bracket group ${job.bracketGroupId} has ${members.length} photos — need at least 2 to merge`
     );
   }
+  console.log(
+    `🎞️  HDR_MERGE: ${members.length} members → ${members.map((m) => m.fileName).join(", ")}`
+  );
 
   // Sort by exposure bias so the fusion is stable across reruns.
   members.sort((a, b) => exposureBiasEv(a) - exposureBiasEv(b));
@@ -78,9 +82,22 @@ export async function handleHdrMerge(job: EditJob): Promise<HandlerResult> {
   // 2. Download + decode every member to normalised rgb pixels. We resize
   //    to a common preview resolution here so the fusion loop doesn't
   //    have to handle size mismatches.
-  const decoded = await Promise.all(
-    members.map(async (asset) => decodeToRaw(asset))
-  );
+  //    Decode sequentially rather than in parallel so a failure names the
+  //    offending file instead of throwing generically from Promise.all.
+  const decoded: DecodedExposure[] = [];
+  for (const asset of members) {
+    try {
+      const d = await decodeToRaw(asset);
+      console.log(
+        `🎞️  HDR_MERGE: decoded ${asset.fileName} → ${d.width}×${d.height}×${d.channels}`
+      );
+      decoded.push(d);
+    } catch (err: any) {
+      throw new Error(
+        `decodeToRaw failed for ${asset.fileName} (${asset.sourceUrl}): ${err?.message ?? err}`
+      );
+    }
+  }
 
   // Force all exposures to the dimensions of the first frame. In practice
   // the photographer's tripod means they're already identical; this is
@@ -96,30 +113,58 @@ export async function handleHdrMerge(job: EditJob): Promise<HandlerResult> {
   });
 
   // 3. Mertens-style weighted fusion, single scale.
+  console.log(
+    `🎞️  HDR_MERGE: fusing ${exposures.length} exposures @ ${width}×${height}×${channels}`
+  );
   const merged = fuseExposures(exposures, width, height, channels);
+
+  // Safety net: Sharp's `raw` input requires channels to be 1..4. If
+  // `removeAlpha()` ever returns an unexpected channel count we want a
+  // legible error, not an opaque "expected boolean" from libvips.
+  if (channels !== 3 && channels !== 4) {
+    throw new Error(
+      `HDR fusion produced ${channels}-channel buffer — expected 3 or 4. Cannot encode.`
+    );
+  }
 
   // 4. Encode both a clean and a watermarked JPEG from the same raw
   //    fusion buffer. Clean = paid unlock-download, watermarked = free
-  //    preview. Done in parallel so we pay max(encode) not sum.
-  const [cleanBuffer, watermarkedBuffer] = await Promise.all([
-    cleanFromRaw(merged, width, height, channels as 3, {
+  //    preview. Done sequentially to isolate encode failures.
+  let cleanBuffer: Buffer;
+  let watermarkedBuffer: Buffer;
+  try {
+    cleanBuffer = await cleanFromRaw(merged, width, height, channels as 3, {
       jpegQuality: PREVIEW_JPEG_QUALITY,
-    }),
-    watermarkFromRaw(merged, width, height, channels as 3, {
-      jpegQuality: PREVIEW_JPEG_QUALITY,
-    }),
-  ]);
+    });
+    console.log(`🎞️  HDR_MERGE: clean encode ok (${cleanBuffer.byteLength} bytes)`);
+  } catch (err: any) {
+    throw new Error(`cleanFromRaw failed: ${err?.message ?? err}`);
+  }
+  try {
+    watermarkedBuffer = await watermarkFromRaw(
+      merged,
+      width,
+      height,
+      channels as 3,
+      { jpegQuality: PREVIEW_JPEG_QUALITY }
+    );
+    console.log(
+      `🎞️  HDR_MERGE: watermark encode ok (${watermarkedBuffer.byteLength} bytes)`
+    );
+  } catch (err: any) {
+    throw new Error(`watermarkFromRaw failed: ${err?.message ?? err}`);
+  }
 
-  // 5. Upload both to Firebase Storage under deterministic paths. Again
-  //    parallel; one is for UI preview, the other sits idle until a
-  //    paid unlock requests it.
+  // 5. Upload both to Firebase Storage under deterministic paths.
   const baseDir = `photo/${inferOrgId(members[0])}/${job.projectId}/merged`;
   const stamp = Date.now();
   const previewPath = `${baseDir}/bracket_${group.id}_${stamp}_preview.jpg`;
   const cleanPath = `${baseDir}/bracket_${group.id}_${stamp}_clean.jpg`;
 
-  const [outputUrl, cleanOutputUrl] = await Promise.all([
-    firebaseStorageService.uploadFile(
+  let outputUrl: string;
+  let cleanOutputUrl: string;
+  try {
+    outputUrl = await firebaseStorageService.uploadFile(
       previewPath,
       watermarkedBuffer,
       "image/jpeg",
@@ -128,13 +173,26 @@ export async function handleHdrMerge(job: EditJob): Promise<HandlerResult> {
         bracketGroupId: String(group.id),
         kind: "hdr_preview",
       }
-    ),
-    firebaseStorageService.uploadFile(cleanPath, cleanBuffer, "image/jpeg", {
-      editJobId: String(job.id),
-      bracketGroupId: String(group.id),
-      kind: "hdr_clean",
-    }),
-  ]);
+    );
+    console.log(`🎞️  HDR_MERGE: preview uploaded → ${previewPath}`);
+  } catch (err: any) {
+    throw new Error(`preview upload failed (${previewPath}): ${err?.message ?? err}`);
+  }
+  try {
+    cleanOutputUrl = await firebaseStorageService.uploadFile(
+      cleanPath,
+      cleanBuffer,
+      "image/jpeg",
+      {
+        editJobId: String(job.id),
+        bracketGroupId: String(group.id),
+        kind: "hdr_clean",
+      }
+    );
+    console.log(`🎞️  HDR_MERGE: clean uploaded → ${cleanPath}`);
+  } catch (err: any) {
+    throw new Error(`clean upload failed (${cleanPath}): ${err?.message ?? err}`);
+  }
 
   // 6. Persist: derived photo_asset + edit_version + update group status.
   const result = await db.transaction(async (tx) => {
