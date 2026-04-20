@@ -22,6 +22,11 @@
  */
 
 import exifr from "exifr";
+import { exiftool, ExifDateTime } from "exiftool-vendored";
+import { writeFile, unlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import sharp from "sharp";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "../db";
@@ -185,6 +190,77 @@ async function extractRawPreview(buffer: Buffer): Promise<Buffer | null> {
   return null;
 }
 
+/**
+ * Shell out to ExifTool for formats exifr can't handle.
+ *
+ * Why this exists: exifr is great for JPEGs but its ISOBMFF support is
+ * flaky — Canon's CR3 is ISOBMFF-based, and in practice we're seeing
+ * zero-key parses from BOTH the CR3 container and the embedded preview
+ * JPEG Canon emits (Canon firmware strips EXIF from the preview). ExifTool
+ * is the 20-year-old Perl tool that handles every RAW container correctly,
+ * and `exiftool-vendored` ships the binary inside node_modules so there's
+ * no system-level install — works on Mac dev + Cloud Run (both arches).
+ *
+ * ExifTool needs a real seekable file (the CR3 container requires
+ * random-access reads), so we stage the buffer in /tmp and clean up
+ * afterwards. The exiftool-vendored daemon keeps a long-lived Perl
+ * process around so repeat calls are cheap (~30ms per file after warmup).
+ *
+ * Returns the raw ExifTool tag bag — it's up to the caller to map the
+ * field names into our ExtractedExif shape (ExifTool uses slightly
+ * different names than exifr in a few places).
+ */
+async function parseExifWithExiftool(
+  buffer: Buffer,
+  originalName: string
+): Promise<Record<string, unknown>> {
+  const safeName = originalName.replace(/[^\w.-]+/g, "_").slice(0, 80);
+  const tempPath = join(
+    tmpdir(),
+    `ailldoit_exif_${randomUUID()}_${safeName}`
+  );
+  try {
+    await writeFile(tempPath, buffer);
+    const tags = await exiftool.read(tempPath);
+    return tags as unknown as Record<string, unknown>;
+  } finally {
+    // Best-effort cleanup; OS-level tmp reap covers any leaks anyway.
+    try {
+      await unlink(tempPath);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/**
+ * ExifTool dates come back as ExifDateTime objects (not native Date).
+ * Normalise to an ISO-8601 string so the rest of our coercion pipeline
+ * (coerceCaptureTime) treats them uniformly. ExifDateTime's .toDate()
+ * yields a JS Date in local-system time if no zone was parsed, which is
+ * close enough for our purposes — bracket clustering only needs relative
+ * ordering within a 6-second window, not true UTC.
+ */
+function exifToolDateToIsoString(v: unknown): string | undefined {
+  if (v == null) return undefined;
+  if (typeof v === "string") return v;
+  if (v instanceof ExifDateTime) {
+    try {
+      const d = v.toDate();
+      return d instanceof Date && !Number.isNaN(+d) ? d.toISOString() : undefined;
+    } catch {
+      // Fallback: rawValue is "YYYY:MM:DD HH:mm:ss" — coerceCaptureTime
+      // knows how to handle that format.
+      return (v as any).rawValue ?? String(v);
+    }
+  }
+  if (v instanceof Date) {
+    return Number.isNaN(+v) ? undefined : v.toISOString();
+  }
+  // Last resort — stringify and let coerceCaptureTime figure it out.
+  return String(v);
+}
+
 export interface UploadedFile {
   originalname: string;
   mimetype: string;
@@ -305,11 +381,31 @@ export class PhotoAssetService {
       isRaw ? `${file.originalname}:preview` : `${file.originalname}`
     );
     if (isRaw && !exif.captureTime) {
+      // Stage 1 fallback: re-parse the original RAW buffer with exifr.
+      // Cheap, no shell-out. Works for some TIFF-based RAW bodies.
       const fallback = await this.parseExif(
         file.buffer,
         `${file.originalname}:raw-fallback`
       );
       exif = mergeExifPreferringNonNull(exif, fallback);
+    }
+    if (isRaw && !exif.captureTime) {
+      // Stage 2 fallback: ExifTool on the original RAW. This is the
+      // reliable path for CR3 (Canon strips EXIF from preview JPEGs,
+      // and exifr's ISOBMFF support can't pull it from the container).
+      // We only reach here when exifr has failed twice, so the cost of
+      // a subprocess call is justified.
+      try {
+        const exiftoolResult = await this.parseExifViaExiftool(
+          file.buffer,
+          `${file.originalname}:exiftool-raw`
+        );
+        exif = mergeExifPreferringNonNull(exif, exiftoolResult);
+      } catch (err: any) {
+        console.error(
+          `❌ PHOTO ASSET: ExifTool fallback failed for ${file.originalname}: ${err?.message ?? err}`
+        );
+      }
     }
     if (isRaw && !exif.captureTime) {
       console.warn(
@@ -717,6 +813,104 @@ export class PhotoAssetService {
       heightPx,
       orientation,
       raw: parsed,
+    };
+  }
+
+  /**
+   * ExifTool-backed EXIF parse. Use this for RAW files (CR3/CR2/DNG/
+   * NEF/ARW/RAF) where exifr's own parse returns zero keys — ExifTool
+   * knows every camera body's quirks and handles Canon's CR3 ISOBMFF
+   * container correctly.
+   *
+   * Returns the SAME ExtractedExif shape as `parseExif()` so callers can
+   * swap or merge freely. Field mapping notes:
+   *   - exifr: ExposureBiasValue       ExifTool: ExposureCompensation
+   *   - exifr: ISO                     ExifTool: ISO
+   *   - exifr: DateTimeOriginal        ExifTool: DateTimeOriginal (ExifDateTime)
+   *   - exifr: ExifImageWidth          ExifTool: ImageWidth / ExifImageWidth
+   *
+   * We prefer the "original" timestamp over CreateDate over ModifyDate,
+   * same as the exifr path, so bracket clustering stays consistent.
+   */
+  async parseExifViaExiftool(
+    buffer: Buffer,
+    tag: string = "buffer"
+  ): Promise<ExtractedExif> {
+    const magic = describeMagic(buffer);
+    let tags: Record<string, unknown> = {};
+    try {
+      tags = await parseExifWithExiftool(buffer, tag);
+    } catch (err: any) {
+      console.error(
+        `❌ PHOTO ASSET [parseExifViaExiftool ${tag}]: exiftool threw — ${err?.message ?? err}`
+      );
+      return {
+        captureTime: null,
+        exposureTimeSec: null,
+        exposureBiasEv: null,
+        iso: null,
+        fNumber: null,
+        focalLengthMm: null,
+        cameraMake: null,
+        cameraModel: null,
+        lensModel: null,
+        widthPx: null,
+        heightPx: null,
+        orientation: null,
+        raw: {},
+      };
+    }
+
+    const keyCount = Object.keys(tags).length;
+    const dtoRaw = tags.DateTimeOriginal ?? tags.CreateDate ?? tags.ModifyDate;
+    const captureTime = coerceCaptureTime(exifToolDateToIsoString(dtoRaw));
+
+    console.log(
+      `📷 PHOTO ASSET [parseExifViaExiftool ${tag}]: size=${buffer.length} magic=${magic} ` +
+        `keys=${keyCount} DateTimeOriginal=${captureTime ?? "∅"} ` +
+        `Model=${tags.Model ?? "∅"} ISO=${tags.ISO ?? "∅"} ` +
+        `EV=${tags.ExposureCompensation ?? tags.ExposureBiasValue ?? "∅"}`
+    );
+
+    // ExifTool-vendored returns ExifDateTime / ExifTime objects that don't
+    // survive JSON.stringify cleanly. Normalise date-ish values to ISO
+    // strings so the `raw` blob we persist in exif_data is readable later.
+    const normalisedRaw: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(tags)) {
+      if (v instanceof ExifDateTime) {
+        normalisedRaw[k] = exifToolDateToIsoString(v) ?? String(v);
+      } else if (v instanceof Date) {
+        normalisedRaw[k] = Number.isNaN(+v) ? null : v.toISOString();
+      } else {
+        normalisedRaw[k] = v;
+      }
+    }
+
+    const iso = numberOrNull(tags.ISO);
+    const fNumber = numberOrNull(tags.FNumber ?? tags.Aperture);
+    const focalLengthMm = numberOrNull(tags.FocalLength);
+    const exposureTimeSec = numberOrNull(tags.ExposureTime);
+    const exposureBiasEv = numberOrNull(
+      tags.ExposureCompensation ?? tags.ExposureBiasValue
+    );
+    const widthPx = numberOrNull(tags.ExifImageWidth ?? tags.ImageWidth);
+    const heightPx = numberOrNull(tags.ExifImageHeight ?? tags.ImageHeight);
+    const orientation = numberOrNull(tags.Orientation);
+
+    return {
+      captureTime,
+      exposureTimeSec,
+      exposureBiasEv,
+      iso,
+      fNumber,
+      focalLengthMm,
+      cameraMake: stringOrNull(tags.Make),
+      cameraModel: stringOrNull(tags.Model),
+      lensModel: stringOrNull(tags.LensModel ?? tags.LensMake ?? tags.Lens),
+      widthPx,
+      heightPx,
+      orientation,
+      raw: normalisedRaw,
     };
   }
 }
