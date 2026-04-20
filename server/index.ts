@@ -12,6 +12,7 @@ initSentry();
 // PostHog init is order-insensitive (no network patching), but we start it
 // here so the funnel is live before the first route handler runs.
 import { initPostHog, shutdownPostHog } from "./observability/posthog";
+import { exiftool } from "exiftool-vendored";
 initPostHog();
 
 import express from "express";
@@ -169,6 +170,14 @@ app.use((req, res, next) => {
       await shutdownPostHog();
     } catch (err: any) {
       console.error("⚠️ SERVER: posthog shutdown errored:", err?.message ?? err);
+    }
+    // Kill the long-running ExifTool daemon so Cloud Run doesn't leak
+    // Perl subprocesses on scale-down. exiftool-vendored keeps a pool
+    // of processes open for fast repeat reads — we end them here.
+    try {
+      await exiftool.end();
+    } catch (err: any) {
+      console.error("⚠️ SERVER: exiftool shutdown errored:", err?.message ?? err);
     }
     httpServer.close(() => {
       console.log("👋 SERVER: closed HTTP server, bye");
