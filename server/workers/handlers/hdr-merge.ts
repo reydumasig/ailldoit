@@ -266,20 +266,29 @@ interface DecodedExposure {
 
 /**
  * Decode a single exposure to a raw RGB pixel buffer, sized to the preview
- * edge. Each Sharp operation is applied in its own step so an error names
- * the exact op that threw — libvips' "A boolean was expected" is otherwise
- * a nightmare to localise.
+ * edge.
  *
- * Defensive choices here, learned from Canon CR3 preview JPEGs:
- *   - We probe metadata up front and skip `removeAlpha()` when there's no
- *     alpha channel (libvips throws a gvalue error on some builds if you
- *     call removeAlpha on an already-3-channel image).
- *   - `toColourspace("srgb")` is wrapped in try/catch and elided on failure
- *     — some camera preview JPEGs embed non-standard ICC profiles that
- *     trigger gvalue type mismatches inside libvips' colour module. We'd
- *     rather get a slightly-off-hue preview than crash the whole merge.
- *   - `rotate()` is called with no args to honour EXIF; if the file has a
- *     malformed orientation tag we fall through to the unrotated buffer.
+ * Sharp is lazy: chained ops don't execute until a terminal call
+ * (.toBuffer/.toFile). That means a try/catch around each chained op only
+ * catches synchronous setup errors — the real libvips errors surface on
+ * the terminal call, which makes localisation hard.
+ *
+ * So we split the work into TWO materialisations:
+ *   Stage A: open → rotate (EXIF) → re-encode to a clean JPEG buffer.
+ *            This forces libvips to evaluate rotate() and bakes in
+ *            orientation. It also strips ICC profiles, EXIF tags, and any
+ *            other metadata that can trip libvips during the render pass.
+ *   Stage B: open the clean JPEG → resize → raw().toBuffer().
+ *            Pure pixel work on a scrubbed buffer, no metadata to
+ *            mis-handle.
+ *
+ * Known Canon CR3 preview failure mode (reason this module exists):
+ *   "A boolean was expected" from libvips during the render pass. The
+ *   metadata probe looks perfectly clean (sRGB / 3-channel / no alpha),
+ *   but something in the extracted preview — embedded ICC profile or a
+ *   malformed EXIF orientation tag — makes one of the queued ops blow up
+ *   at evaluation time. Splitting into stages + stripping metadata via
+ *   an intermediate re-encode makes the full decode work.
  */
 async function decodeToRaw(asset: PhotoAsset): Promise<DecodedExposure> {
   const res = await fetch(asset.sourceUrl);
@@ -288,8 +297,7 @@ async function decodeToRaw(asset: PhotoAsset): Promise<DecodedExposure> {
   }
   const buf = Buffer.from(await res.arrayBuffer());
 
-  // Probe first so we can branch on what the file actually has. We do NOT
-  // chain this into the final pipeline — metadata() finalises the instance.
+  // Probe first so we know what we're dealing with and can log it.
   let meta: sharp.Metadata;
   try {
     meta = await sharp(buf, { failOn: "none" }).metadata();
@@ -300,68 +308,74 @@ async function decodeToRaw(asset: PhotoAsset): Promise<DecodedExposure> {
   }
   const hasAlpha = meta.hasAlpha === true;
   const space = meta.space ?? "unknown";
+  const hasIcc = Boolean(meta.icc);
   console.log(
-    `🎞️  HDR_MERGE: probe ${asset.fileName} → ${meta.format} ${meta.width}×${meta.height} space=${space} alpha=${hasAlpha} channels=${meta.channels}`
+    `🎞️  HDR_MERGE: probe ${asset.fileName} → ${meta.format} ${meta.width}×${meta.height} space=${space} alpha=${hasAlpha} channels=${meta.channels} icc=${hasIcc} orientation=${meta.orientation ?? "none"}`
   );
 
-  // Build the pipeline one op at a time, each wrapped so the throw site
-  // names itself. We deliberately re-bind the instance after each op so a
-  // partial failure still lets the next call work on the last-good state.
-  let pipeline = sharp(buf, { failOn: "none" });
-
+  // ---------------------------------------------------------------------
+  // Stage A: rotate + re-encode to a clean, metadata-stripped JPEG.
+  // ---------------------------------------------------------------------
+  // `.jpeg().toBuffer()` forces libvips to evaluate .rotate() right here,
+  // so if orientation handling is the thing that throws, it throws at
+  // Stage A and we know to skip it.
+  let cleanJpeg: Buffer;
   try {
-    pipeline = pipeline.rotate();
-  } catch (err: any) {
-    throw new Error(
-      `sharp.rotate() threw for ${asset.fileName}: ${err?.message ?? err}`
-    );
-  }
-
-  try {
-    pipeline = pipeline.resize({
-      width: PREVIEW_MAX_EDGE,
-      height: PREVIEW_MAX_EDGE,
-      fit: "inside",
-      withoutEnlargement: true,
-    });
-  } catch (err: any) {
-    throw new Error(
-      `sharp.resize() threw for ${asset.fileName}: ${err?.message ?? err}`
-    );
-  }
-
-  // toColourspace is the prime suspect for "A boolean was expected" on
-  // camera preview JPEGs with embedded ICC profiles. Try it; if libvips
-  // refuses, drop it and continue — the image is almost certainly already
-  // sRGB-ish, and our fusion does its own luminance math anyway.
-  try {
-    pipeline = pipeline.toColourspace("srgb");
-  } catch (err: any) {
+    cleanJpeg = await sharp(buf, { failOn: "none" })
+      .rotate() // honour EXIF orientation; then we throw the tag away
+      .jpeg({ quality: 95, mozjpeg: false })
+      .toBuffer();
+  } catch (rotateErr: any) {
+    // Fallback: try again without rotate(). Most of the bracket will be
+    // shot on a tripod at the same orientation anyway, so dropping
+    // orientation won't misalign frames in practice.
     console.warn(
-      `⚠️ HDR_MERGE: toColourspace('srgb') failed for ${asset.fileName} (${err?.message ?? err}) — continuing without colourspace conversion`
+      `⚠️ HDR_MERGE: rotate+encode threw for ${asset.fileName} (${rotateErr?.message ?? rotateErr}) — retrying without rotate()`
     );
-  }
-
-  // Only strip alpha if the source actually has one. Calling removeAlpha()
-  // on a 3-channel image has surfaced a gvalue boolean-type error on some
-  // libvips builds — so we just skip it when there's nothing to remove.
-  if (hasAlpha) {
     try {
-      pipeline = pipeline.removeAlpha();
-    } catch (err: any) {
+      cleanJpeg = await sharp(buf, { failOn: "none" })
+        .jpeg({ quality: 95, mozjpeg: false })
+        .toBuffer();
+    } catch (plainErr: any) {
       throw new Error(
-        `sharp.removeAlpha() threw for ${asset.fileName}: ${err?.message ?? err}`
+        `Stage A re-encode failed for ${asset.fileName} (rotate err: ${rotateErr?.message ?? rotateErr}; plain err: ${plainErr?.message ?? plainErr})`
       );
     }
   }
 
+  // ---------------------------------------------------------------------
+  // Stage B: resize the clean JPEG down to preview size and dump raw RGB.
+  // ---------------------------------------------------------------------
   let raw: { data: Buffer; info: sharp.OutputInfo };
   try {
-    raw = await pipeline.raw().toBuffer({ resolveWithObject: true });
-  } catch (err: any) {
-    throw new Error(
-      `sharp.raw().toBuffer() threw for ${asset.fileName}: ${err?.message ?? err}`
-    );
+    raw = await sharp(cleanJpeg, { failOn: "none" })
+      .resize({
+        width: PREVIEW_MAX_EDGE,
+        height: PREVIEW_MAX_EDGE,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .removeAlpha() // idempotent on 3-channel input; clean JPEG has no alpha
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+  } catch (resizeErr: any) {
+    // Last-ditch: try without removeAlpha in case some libvips builds still
+    // trip over it on 3-channel input.
+    try {
+      raw = await sharp(cleanJpeg, { failOn: "none" })
+        .resize({
+          width: PREVIEW_MAX_EDGE,
+          height: PREVIEW_MAX_EDGE,
+          fit: "inside",
+          withoutEnlargement: true,
+        })
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+    } catch (bareErr: any) {
+      throw new Error(
+        `Stage B resize/raw failed for ${asset.fileName} (with removeAlpha: ${resizeErr?.message ?? resizeErr}; without: ${bareErr?.message ?? bareErr})`
+      );
+    }
   }
 
   // Defence in depth: the fusion loop assumes exactly 3 channels. If
