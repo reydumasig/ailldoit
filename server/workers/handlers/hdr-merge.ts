@@ -55,6 +55,7 @@ export async function handleHdrMerge(job: EditJob): Promise<HandlerResult> {
     .from(bracketGroups)
     .where(eq(bracketGroups.id, job.bracketGroupId));
   if (!group) throw new Error(`Bracket group ${job.bracketGroupId} not found`);
+  console.log(`🎞️  HDR_MERGE: hydrated bracket=${group.id} status=${group.status}`);
 
   const members = await db
     .select()
@@ -71,6 +72,9 @@ export async function handleHdrMerge(job: EditJob): Promise<HandlerResult> {
       `Bracket group ${job.bracketGroupId} has ${members.length} photos — need at least 2 to merge`
     );
   }
+  console.log(
+    `🎞️  HDR_MERGE: ${members.length} members → ${members.map((m) => m.fileName).join(", ")}`
+  );
 
   // Sort by exposure bias so the fusion is stable across reruns.
   members.sort((a, b) => exposureBiasEv(a) - exposureBiasEv(b));
@@ -78,9 +82,22 @@ export async function handleHdrMerge(job: EditJob): Promise<HandlerResult> {
   // 2. Download + decode every member to normalised rgb pixels. We resize
   //    to a common preview resolution here so the fusion loop doesn't
   //    have to handle size mismatches.
-  const decoded = await Promise.all(
-    members.map(async (asset) => decodeToRaw(asset))
-  );
+  //    Decode sequentially rather than in parallel so a failure names the
+  //    offending file instead of throwing generically from Promise.all.
+  const decoded: DecodedExposure[] = [];
+  for (const asset of members) {
+    try {
+      const d = await decodeToRaw(asset);
+      console.log(
+        `🎞️  HDR_MERGE: decoded ${asset.fileName} → ${d.width}×${d.height}×${d.channels}`
+      );
+      decoded.push(d);
+    } catch (err: any) {
+      throw new Error(
+        `decodeToRaw failed for ${asset.fileName} (${asset.sourceUrl}): ${err?.message ?? err}`
+      );
+    }
+  }
 
   // Force all exposures to the dimensions of the first frame. In practice
   // the photographer's tripod means they're already identical; this is
@@ -96,30 +113,58 @@ export async function handleHdrMerge(job: EditJob): Promise<HandlerResult> {
   });
 
   // 3. Mertens-style weighted fusion, single scale.
+  console.log(
+    `🎞️  HDR_MERGE: fusing ${exposures.length} exposures @ ${width}×${height}×${channels}`
+  );
   const merged = fuseExposures(exposures, width, height, channels);
+
+  // Safety net: Sharp's `raw` input requires channels to be 1..4. If
+  // `removeAlpha()` ever returns an unexpected channel count we want a
+  // legible error, not an opaque "expected boolean" from libvips.
+  if (channels !== 3 && channels !== 4) {
+    throw new Error(
+      `HDR fusion produced ${channels}-channel buffer — expected 3 or 4. Cannot encode.`
+    );
+  }
 
   // 4. Encode both a clean and a watermarked JPEG from the same raw
   //    fusion buffer. Clean = paid unlock-download, watermarked = free
-  //    preview. Done in parallel so we pay max(encode) not sum.
-  const [cleanBuffer, watermarkedBuffer] = await Promise.all([
-    cleanFromRaw(merged, width, height, channels as 3, {
+  //    preview. Done sequentially to isolate encode failures.
+  let cleanBuffer: Buffer;
+  let watermarkedBuffer: Buffer;
+  try {
+    cleanBuffer = await cleanFromRaw(merged, width, height, channels as 3, {
       jpegQuality: PREVIEW_JPEG_QUALITY,
-    }),
-    watermarkFromRaw(merged, width, height, channels as 3, {
-      jpegQuality: PREVIEW_JPEG_QUALITY,
-    }),
-  ]);
+    });
+    console.log(`🎞️  HDR_MERGE: clean encode ok (${cleanBuffer.byteLength} bytes)`);
+  } catch (err: any) {
+    throw new Error(`cleanFromRaw failed: ${err?.message ?? err}`);
+  }
+  try {
+    watermarkedBuffer = await watermarkFromRaw(
+      merged,
+      width,
+      height,
+      channels as 3,
+      { jpegQuality: PREVIEW_JPEG_QUALITY }
+    );
+    console.log(
+      `🎞️  HDR_MERGE: watermark encode ok (${watermarkedBuffer.byteLength} bytes)`
+    );
+  } catch (err: any) {
+    throw new Error(`watermarkFromRaw failed: ${err?.message ?? err}`);
+  }
 
-  // 5. Upload both to Firebase Storage under deterministic paths. Again
-  //    parallel; one is for UI preview, the other sits idle until a
-  //    paid unlock requests it.
+  // 5. Upload both to Firebase Storage under deterministic paths.
   const baseDir = `photo/${inferOrgId(members[0])}/${job.projectId}/merged`;
   const stamp = Date.now();
   const previewPath = `${baseDir}/bracket_${group.id}_${stamp}_preview.jpg`;
   const cleanPath = `${baseDir}/bracket_${group.id}_${stamp}_clean.jpg`;
 
-  const [outputUrl, cleanOutputUrl] = await Promise.all([
-    firebaseStorageService.uploadFile(
+  let outputUrl: string;
+  let cleanOutputUrl: string;
+  try {
+    outputUrl = await firebaseStorageService.uploadFile(
       previewPath,
       watermarkedBuffer,
       "image/jpeg",
@@ -128,13 +173,26 @@ export async function handleHdrMerge(job: EditJob): Promise<HandlerResult> {
         bracketGroupId: String(group.id),
         kind: "hdr_preview",
       }
-    ),
-    firebaseStorageService.uploadFile(cleanPath, cleanBuffer, "image/jpeg", {
-      editJobId: String(job.id),
-      bracketGroupId: String(group.id),
-      kind: "hdr_clean",
-    }),
-  ]);
+    );
+    console.log(`🎞️  HDR_MERGE: preview uploaded → ${previewPath}`);
+  } catch (err: any) {
+    throw new Error(`preview upload failed (${previewPath}): ${err?.message ?? err}`);
+  }
+  try {
+    cleanOutputUrl = await firebaseStorageService.uploadFile(
+      cleanPath,
+      cleanBuffer,
+      "image/jpeg",
+      {
+        editJobId: String(job.id),
+        bracketGroupId: String(group.id),
+        kind: "hdr_clean",
+      }
+    );
+    console.log(`🎞️  HDR_MERGE: clean uploaded → ${cleanPath}`);
+  } catch (err: any) {
+    throw new Error(`clean upload failed (${cleanPath}): ${err?.message ?? err}`);
+  }
 
   // 6. Persist: derived photo_asset + edit_version + update group status.
   const result = await db.transaction(async (tx) => {
@@ -206,6 +264,32 @@ interface DecodedExposure {
   channels: number;
 }
 
+/**
+ * Decode a single exposure to a raw RGB pixel buffer, sized to the preview
+ * edge.
+ *
+ * Sharp is lazy: chained ops don't execute until a terminal call
+ * (.toBuffer/.toFile). That means a try/catch around each chained op only
+ * catches synchronous setup errors — the real libvips errors surface on
+ * the terminal call, which makes localisation hard.
+ *
+ * So we split the work into TWO materialisations:
+ *   Stage A: open → rotate (EXIF) → re-encode to a clean JPEG buffer.
+ *            This forces libvips to evaluate rotate() and bakes in
+ *            orientation. It also strips ICC profiles, EXIF tags, and any
+ *            other metadata that can trip libvips during the render pass.
+ *   Stage B: open the clean JPEG → resize → raw().toBuffer().
+ *            Pure pixel work on a scrubbed buffer, no metadata to
+ *            mis-handle.
+ *
+ * Known Canon CR3 preview failure mode (reason this module exists):
+ *   "A boolean was expected" from libvips during the render pass. The
+ *   metadata probe looks perfectly clean (sRGB / 3-channel / no alpha),
+ *   but something in the extracted preview — embedded ICC profile or a
+ *   malformed EXIF orientation tag — makes one of the queued ops blow up
+ *   at evaluation time. Splitting into stages + stripping metadata via
+ *   an intermediate re-encode makes the full decode work.
+ */
 async function decodeToRaw(asset: PhotoAsset): Promise<DecodedExposure> {
   const res = await fetch(asset.sourceUrl);
   if (!res.ok) {
@@ -213,23 +297,114 @@ async function decodeToRaw(asset: PhotoAsset): Promise<DecodedExposure> {
   }
   const buf = Buffer.from(await res.arrayBuffer());
 
-  const pipeline = sharp(buf, { failOn: "none" })
-    .rotate() // honour EXIF orientation so all frames align
-    .resize({
-      width: PREVIEW_MAX_EDGE,
-      height: PREVIEW_MAX_EDGE,
-      fit: "inside",
-      withoutEnlargement: true,
-    })
-    .toColourspace("srgb")
-    .removeAlpha();
+  // Probe first so we know what we're dealing with and can log it.
+  let meta: sharp.Metadata;
+  try {
+    meta = await sharp(buf, { failOn: "none" }).metadata();
+  } catch (err: any) {
+    throw new Error(
+      `sharp.metadata threw for ${asset.fileName}: ${err?.message ?? err}`
+    );
+  }
+  const hasAlpha = meta.hasAlpha === true;
+  const space = meta.space ?? "unknown";
+  const hasIcc = Boolean(meta.icc);
+  console.log(
+    `🎞️  HDR_MERGE: probe ${asset.fileName} → ${meta.format} ${meta.width}×${meta.height} space=${space} alpha=${hasAlpha} channels=${meta.channels} icc=${hasIcc} orientation=${meta.orientation ?? "none"}`
+  );
 
-  const { data, info } = await pipeline.raw().toBuffer({ resolveWithObject: true });
+  // ---------------------------------------------------------------------
+  // Stage A: rotate + re-encode to a clean, metadata-stripped JPEG.
+  // ---------------------------------------------------------------------
+  // `.jpeg().toBuffer()` forces libvips to evaluate .rotate() right here,
+  // so if orientation handling is the thing that throws, it throws at
+  // Stage A and we know to skip it.
+  let cleanJpeg: Buffer;
+  try {
+    cleanJpeg = await sharp(buf, { failOn: "none" })
+      .rotate() // honour EXIF orientation; then we throw the tag away
+      .jpeg({ quality: 95, mozjpeg: false })
+      .toBuffer();
+  } catch (rotateErr: any) {
+    // Fallback: try again without rotate(). Most of the bracket will be
+    // shot on a tripod at the same orientation anyway, so dropping
+    // orientation won't misalign frames in practice.
+    console.warn(
+      `⚠️ HDR_MERGE: rotate+encode threw for ${asset.fileName} (${rotateErr?.message ?? rotateErr}) — retrying without rotate()`
+    );
+    try {
+      cleanJpeg = await sharp(buf, { failOn: "none" })
+        .jpeg({ quality: 95, mozjpeg: false })
+        .toBuffer();
+    } catch (plainErr: any) {
+      throw new Error(
+        `Stage A re-encode failed for ${asset.fileName} (rotate err: ${rotateErr?.message ?? rotateErr}; plain err: ${plainErr?.message ?? plainErr})`
+      );
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Stage B: resize the clean JPEG down to preview size and dump raw RGB.
+  // ---------------------------------------------------------------------
+  let raw: { data: Buffer; info: sharp.OutputInfo };
+  try {
+    raw = await sharp(cleanJpeg, { failOn: "none" })
+      .resize({
+        width: PREVIEW_MAX_EDGE,
+        height: PREVIEW_MAX_EDGE,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .removeAlpha() // idempotent on 3-channel input; clean JPEG has no alpha
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+  } catch (resizeErr: any) {
+    // Last-ditch: try without removeAlpha in case some libvips builds still
+    // trip over it on 3-channel input.
+    try {
+      raw = await sharp(cleanJpeg, { failOn: "none" })
+        .resize({
+          width: PREVIEW_MAX_EDGE,
+          height: PREVIEW_MAX_EDGE,
+          fit: "inside",
+          withoutEnlargement: true,
+        })
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+    } catch (bareErr: any) {
+      throw new Error(
+        `Stage B resize/raw failed for ${asset.fileName} (with removeAlpha: ${resizeErr?.message ?? resizeErr}; without: ${bareErr?.message ?? bareErr})`
+      );
+    }
+  }
+
+  // Defence in depth: the fusion loop assumes exactly 3 channels. If
+  // removeAlpha was skipped and the source was 4-channel, drop the alpha
+  // byte here in JS so the downstream code doesn't have to branch.
+  if (raw.info.channels === 4) {
+    console.warn(
+      `⚠️ HDR_MERGE: ${asset.fileName} emerged as 4-channel raw; dropping alpha in JS`
+    );
+    const px = raw.info.width * raw.info.height;
+    const rgb = Buffer.alloc(px * 3);
+    for (let i = 0; i < px; i++) {
+      rgb[i * 3] = raw.data[i * 4];
+      rgb[i * 3 + 1] = raw.data[i * 4 + 1];
+      rgb[i * 3 + 2] = raw.data[i * 4 + 2];
+    }
+    return {
+      data: new Uint8Array(rgb),
+      width: raw.info.width,
+      height: raw.info.height,
+      channels: 3,
+    };
+  }
+
   return {
-    data: new Uint8Array(data),
-    width: info.width,
-    height: info.height,
-    channels: info.channels,
+    data: new Uint8Array(raw.data),
+    width: raw.info.width,
+    height: raw.info.height,
+    channels: raw.info.channels,
   };
 }
 

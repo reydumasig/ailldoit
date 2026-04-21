@@ -124,9 +124,14 @@ export function startPhotoWorker(): WorkerHandle {
   );
 
   worker.on("failed", (job, err) => {
+    // Log the full stack so we can tell which step in a multi-step handler
+    // threw. The `failed` hook otherwise loses the stack the moment BullMQ
+    // serialises the error to Redis for the retry machinery.
     console.error(
       `❌ PHOTO WORKER: job ${job?.id} (${job?.name}) failed:`,
-      err?.message ?? err
+      err?.message ?? err,
+      "\nstack:",
+      err?.stack ?? "(no stack)"
     );
     // Send failed jobs to Sentry with enough context to debug without
     // cross-referencing the DB: jobId, jobType, editJobId, attempt count.
