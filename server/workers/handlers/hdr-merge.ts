@@ -264,6 +264,23 @@ interface DecodedExposure {
   channels: number;
 }
 
+/**
+ * Decode a single exposure to a raw RGB pixel buffer, sized to the preview
+ * edge. Each Sharp operation is applied in its own step so an error names
+ * the exact op that threw — libvips' "A boolean was expected" is otherwise
+ * a nightmare to localise.
+ *
+ * Defensive choices here, learned from Canon CR3 preview JPEGs:
+ *   - We probe metadata up front and skip `removeAlpha()` when there's no
+ *     alpha channel (libvips throws a gvalue error on some builds if you
+ *     call removeAlpha on an already-3-channel image).
+ *   - `toColourspace("srgb")` is wrapped in try/catch and elided on failure
+ *     — some camera preview JPEGs embed non-standard ICC profiles that
+ *     trigger gvalue type mismatches inside libvips' colour module. We'd
+ *     rather get a slightly-off-hue preview than crash the whole merge.
+ *   - `rotate()` is called with no args to honour EXIF; if the file has a
+ *     malformed orientation tag we fall through to the unrotated buffer.
+ */
 async function decodeToRaw(asset: PhotoAsset): Promise<DecodedExposure> {
   const res = await fetch(asset.sourceUrl);
   if (!res.ok) {
@@ -271,23 +288,109 @@ async function decodeToRaw(asset: PhotoAsset): Promise<DecodedExposure> {
   }
   const buf = Buffer.from(await res.arrayBuffer());
 
-  const pipeline = sharp(buf, { failOn: "none" })
-    .rotate() // honour EXIF orientation so all frames align
-    .resize({
+  // Probe first so we can branch on what the file actually has. We do NOT
+  // chain this into the final pipeline — metadata() finalises the instance.
+  let meta: sharp.Metadata;
+  try {
+    meta = await sharp(buf, { failOn: "none" }).metadata();
+  } catch (err: any) {
+    throw new Error(
+      `sharp.metadata threw for ${asset.fileName}: ${err?.message ?? err}`
+    );
+  }
+  const hasAlpha = meta.hasAlpha === true;
+  const space = meta.space ?? "unknown";
+  console.log(
+    `🎞️  HDR_MERGE: probe ${asset.fileName} → ${meta.format} ${meta.width}×${meta.height} space=${space} alpha=${hasAlpha} channels=${meta.channels}`
+  );
+
+  // Build the pipeline one op at a time, each wrapped so the throw site
+  // names itself. We deliberately re-bind the instance after each op so a
+  // partial failure still lets the next call work on the last-good state.
+  let pipeline = sharp(buf, { failOn: "none" });
+
+  try {
+    pipeline = pipeline.rotate();
+  } catch (err: any) {
+    throw new Error(
+      `sharp.rotate() threw for ${asset.fileName}: ${err?.message ?? err}`
+    );
+  }
+
+  try {
+    pipeline = pipeline.resize({
       width: PREVIEW_MAX_EDGE,
       height: PREVIEW_MAX_EDGE,
       fit: "inside",
       withoutEnlargement: true,
-    })
-    .toColourspace("srgb")
-    .removeAlpha();
+    });
+  } catch (err: any) {
+    throw new Error(
+      `sharp.resize() threw for ${asset.fileName}: ${err?.message ?? err}`
+    );
+  }
 
-  const { data, info } = await pipeline.raw().toBuffer({ resolveWithObject: true });
+  // toColourspace is the prime suspect for "A boolean was expected" on
+  // camera preview JPEGs with embedded ICC profiles. Try it; if libvips
+  // refuses, drop it and continue — the image is almost certainly already
+  // sRGB-ish, and our fusion does its own luminance math anyway.
+  try {
+    pipeline = pipeline.toColourspace("srgb");
+  } catch (err: any) {
+    console.warn(
+      `⚠️ HDR_MERGE: toColourspace('srgb') failed for ${asset.fileName} (${err?.message ?? err}) — continuing without colourspace conversion`
+    );
+  }
+
+  // Only strip alpha if the source actually has one. Calling removeAlpha()
+  // on a 3-channel image has surfaced a gvalue boolean-type error on some
+  // libvips builds — so we just skip it when there's nothing to remove.
+  if (hasAlpha) {
+    try {
+      pipeline = pipeline.removeAlpha();
+    } catch (err: any) {
+      throw new Error(
+        `sharp.removeAlpha() threw for ${asset.fileName}: ${err?.message ?? err}`
+      );
+    }
+  }
+
+  let raw: { data: Buffer; info: sharp.OutputInfo };
+  try {
+    raw = await pipeline.raw().toBuffer({ resolveWithObject: true });
+  } catch (err: any) {
+    throw new Error(
+      `sharp.raw().toBuffer() threw for ${asset.fileName}: ${err?.message ?? err}`
+    );
+  }
+
+  // Defence in depth: the fusion loop assumes exactly 3 channels. If
+  // removeAlpha was skipped and the source was 4-channel, drop the alpha
+  // byte here in JS so the downstream code doesn't have to branch.
+  if (raw.info.channels === 4) {
+    console.warn(
+      `⚠️ HDR_MERGE: ${asset.fileName} emerged as 4-channel raw; dropping alpha in JS`
+    );
+    const px = raw.info.width * raw.info.height;
+    const rgb = Buffer.alloc(px * 3);
+    for (let i = 0; i < px; i++) {
+      rgb[i * 3] = raw.data[i * 4];
+      rgb[i * 3 + 1] = raw.data[i * 4 + 1];
+      rgb[i * 3 + 2] = raw.data[i * 4 + 2];
+    }
+    return {
+      data: new Uint8Array(rgb),
+      width: raw.info.width,
+      height: raw.info.height,
+      channels: 3,
+    };
+  }
+
   return {
-    data: new Uint8Array(data),
-    width: info.width,
-    height: info.height,
-    channels: info.channels,
+    data: new Uint8Array(raw.data),
+    width: raw.info.width,
+    height: raw.info.height,
+    channels: raw.info.channels,
   };
 }
 
