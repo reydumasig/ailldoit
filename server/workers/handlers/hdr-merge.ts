@@ -24,6 +24,7 @@
  */
 
 import sharp from "sharp";
+import * as jpegJs from "jpeg-js";
 import { and, eq } from "drizzle-orm";
 import type { EditJob, PhotoAsset, InsertPhotoAsset, InsertEditVersion } from "@shared/schema";
 import { db } from "../../db";
@@ -319,16 +320,23 @@ async function decodeToRaw(asset: PhotoAsset): Promise<DecodedExposure> {
   // `.jpeg().toBuffer()` forces libvips to evaluate .rotate() right here,
   // so if orientation handling is the thing that throws, it throws at
   // Stage A and we know to skip it.
-  let cleanJpeg: Buffer;
+  //
+  // If Stage A throws "A boolean was expected" (or anything else), we
+  // assume libvips can't decode the pixel stream of this buffer and
+  // fall back to the pure-JS `jpeg-js` decoder. jpeg-js is more permissive
+  // than libjpeg-turbo and tends to succeed on the slightly-truncated
+  // JPEGs our CR3 byte-scanner extracts.
+  let cleanJpeg: Buffer | null = null;
+  let stageAErr: string | null = null;
   try {
     cleanJpeg = await sharp(buf, { failOn: "none" })
       .rotate() // honour EXIF orientation; then we throw the tag away
       .jpeg({ quality: 95, mozjpeg: false })
       .toBuffer();
   } catch (rotateErr: any) {
-    // Fallback: try again without rotate(). Most of the bracket will be
-    // shot on a tripod at the same orientation anyway, so dropping
-    // orientation won't misalign frames in practice.
+    // Retry without rotate(). Most of the bracket will be shot on a tripod
+    // at the same orientation anyway, so dropping orientation won't
+    // misalign frames in practice.
     console.warn(
       `⚠️ HDR_MERGE: rotate+encode threw for ${asset.fileName} (${rotateErr?.message ?? rotateErr}) — retrying without rotate()`
     );
@@ -337,30 +345,22 @@ async function decodeToRaw(asset: PhotoAsset): Promise<DecodedExposure> {
         .jpeg({ quality: 95, mozjpeg: false })
         .toBuffer();
     } catch (plainErr: any) {
-      throw new Error(
-        `Stage A re-encode failed for ${asset.fileName} (rotate err: ${rotateErr?.message ?? rotateErr}; plain err: ${plainErr?.message ?? plainErr})`
+      // Both Sharp paths failed. Record the reason and drop through to the
+      // jpeg-js fallback below.
+      stageAErr = `rotate err: ${rotateErr?.message ?? rotateErr}; plain err: ${plainErr?.message ?? plainErr}`;
+      console.warn(
+        `⚠️ HDR_MERGE: Stage A Sharp decode failed for ${asset.fileName} (${stageAErr}) — falling back to jpeg-js pure-JS decoder`
       );
     }
   }
 
   // ---------------------------------------------------------------------
-  // Stage B: resize the clean JPEG down to preview size and dump raw RGB.
+  // Stage B: produce the final raw RGB pixel buffer sized to preview.
   // ---------------------------------------------------------------------
   let raw: { data: Buffer; info: sharp.OutputInfo };
-  try {
-    raw = await sharp(cleanJpeg, { failOn: "none" })
-      .resize({
-        width: PREVIEW_MAX_EDGE,
-        height: PREVIEW_MAX_EDGE,
-        fit: "inside",
-        withoutEnlargement: true,
-      })
-      .removeAlpha() // idempotent on 3-channel input; clean JPEG has no alpha
-      .raw()
-      .toBuffer({ resolveWithObject: true });
-  } catch (resizeErr: any) {
-    // Last-ditch: try without removeAlpha in case some libvips builds still
-    // trip over it on 3-channel input.
+
+  if (cleanJpeg) {
+    // Happy path: Sharp gave us a clean JPEG, resize + raw from there.
     try {
       raw = await sharp(cleanJpeg, { failOn: "none" })
         .resize({
@@ -369,13 +369,33 @@ async function decodeToRaw(asset: PhotoAsset): Promise<DecodedExposure> {
           fit: "inside",
           withoutEnlargement: true,
         })
+        .removeAlpha()
         .raw()
         .toBuffer({ resolveWithObject: true });
-    } catch (bareErr: any) {
-      throw new Error(
-        `Stage B resize/raw failed for ${asset.fileName} (with removeAlpha: ${resizeErr?.message ?? resizeErr}; without: ${bareErr?.message ?? bareErr})`
-      );
+    } catch (resizeErr: any) {
+      // Try once more without removeAlpha.
+      try {
+        raw = await sharp(cleanJpeg, { failOn: "none" })
+          .resize({
+            width: PREVIEW_MAX_EDGE,
+            height: PREVIEW_MAX_EDGE,
+            fit: "inside",
+            withoutEnlargement: true,
+          })
+          .raw()
+          .toBuffer({ resolveWithObject: true });
+      } catch (bareErr: any) {
+        // Sharp can't resize the clean JPEG either — drop to jpeg-js on
+        // the original buffer (not the re-encoded one).
+        console.warn(
+          `⚠️ HDR_MERGE: Stage B Sharp resize failed for ${asset.fileName} (with removeAlpha: ${resizeErr?.message ?? resizeErr}; without: ${bareErr?.message ?? bareErr}) — falling back to jpeg-js`
+        );
+        raw = await decodeViaJpegJs(buf, asset.fileName);
+      }
     }
+  } else {
+    // Sharp couldn't touch this buffer at all. Try jpeg-js instead.
+    raw = await decodeViaJpegJs(buf, asset.fileName);
   }
 
   // Defence in depth: the fusion loop assumes exactly 3 channels. If
@@ -406,6 +426,78 @@ async function decodeToRaw(asset: PhotoAsset): Promise<DecodedExposure> {
     height: raw.info.height,
     channels: raw.info.channels,
   };
+}
+
+/**
+ * Fallback decoder for JPEGs libvips can't parse.
+ *
+ * `jpeg-js` is a pure-JS JPEG decoder. It's ~20× slower than libjpeg-turbo
+ * but much more permissive — it happily decodes JPEGs with slightly-off
+ * EOI markers, unusual DCT coefficient patterns, or mildly-truncated
+ * streams that cause libvips to throw "A boolean was expected" (the
+ * generic gvalue error libvips surfaces when native decode trips).
+ *
+ * This is the path we hit for most Canon CR3 embedded previews — our
+ * byte-scanner in photo-asset-service.ts extracts a JPEG whose header
+ * parses fine (so `sharp.metadata()` succeeds at upload-time validation)
+ * but whose pixel stream libvips rejects at decode-time.
+ *
+ * Flow:
+ *   1. jpeg-js → Uint8Array RGBA at full source resolution.
+ *   2. Sharp, opened as raw RGBA, resized + removeAlpha + raw.toBuffer.
+ *      We still use Sharp for the resize because it's the fastest way
+ *      to get a high-quality downsample.
+ */
+async function decodeViaJpegJs(
+  buf: Buffer,
+  fileName: string
+): Promise<{ data: Buffer; info: sharp.OutputInfo }> {
+  let decoded: { data: Uint8Array; width: number; height: number };
+  try {
+    decoded = jpegJs.decode(buf, {
+      useTArray: true,
+      formatAsRGBA: true,
+      // tolerantDecoding lets jpeg-js return whatever it could decode even
+      // if EOF comes mid-scan. For our preview use-case that's strictly
+      // better than failing.
+      tolerantDecoding: true,
+      maxMemoryUsageInMB: 1024,
+      maxResolutionInMP: 200,
+    });
+  } catch (err: any) {
+    throw new Error(
+      `jpeg-js fallback decode failed for ${fileName}: ${err?.message ?? err}`
+    );
+  }
+  console.log(
+    `🎞️  HDR_MERGE: jpeg-js decoded ${fileName} → ${decoded.width}×${decoded.height} RGBA`
+  );
+
+  // Feed the raw RGBA pixels into Sharp for a high-quality resize down to
+  // preview edge. Sharp handles raw input fine; the "boolean" bug is in
+  // the JPEG decoder path, not the resize path.
+  try {
+    return await sharp(Buffer.from(decoded.data), {
+      raw: {
+        width: decoded.width,
+        height: decoded.height,
+        channels: 4,
+      },
+    })
+      .resize({
+        width: PREVIEW_MAX_EDGE,
+        height: PREVIEW_MAX_EDGE,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .removeAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+  } catch (err: any) {
+    throw new Error(
+      `Sharp resize of jpeg-js raw pixels failed for ${fileName}: ${err?.message ?? err}`
+    );
+  }
 }
 
 /**

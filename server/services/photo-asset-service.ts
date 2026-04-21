@@ -171,17 +171,36 @@ async function extractRawPreview(buffer: Buffer): Promise<Buffer | null> {
   for (const candidate of candidates) {
     if (candidate.length < MIN_PREVIEW_BYTES) break; // sorted largest-first
     try {
-      // sharp validates the JPEG by reading its header. Any well-formed
-      // embedded preview decodes here; thumbnail-sized APP1/APP2 blobs
-      // typically fail or report tiny dimensions.
+      // Validate header first (cheap). This weeds out thumbnail-sized
+      // APP1/APP2 blobs and any buffer that isn't really a JPEG.
       const meta = await sharp(candidate).metadata();
       if (
-        meta.format === "jpeg" &&
-        (meta.width ?? 0) >= 800 &&
-        (meta.height ?? 0) >= 600
+        meta.format !== "jpeg" ||
+        (meta.width ?? 0) < 800 ||
+        (meta.height ?? 0) < 600
       ) {
-        return candidate;
+        continue;
       }
+
+      // Validate the *pixel stream* too. A valid JPEG header does not
+      // guarantee decodable pixels — our byte scanner's EOI detection
+      // occasionally grabs bytes from inside a compressed segment and
+      // produces a buffer libvips refuses with "A boolean was expected"
+      // at decode time. A small-output pixel decode is the cheapest way
+      // to catch that here, before the bad preview hits Firebase.
+      try {
+        await sharp(candidate, { failOn: "none" })
+          .resize({ width: 64, height: 64, fit: "inside" })
+          .raw()
+          .toBuffer();
+      } catch (pixelErr: any) {
+        console.warn(
+          `⚠️ PHOTO ASSET: candidate at ${meta.width}×${meta.height} had valid header but pixel decode failed (${pixelErr?.message}) — skipping`
+        );
+        continue;
+      }
+
+      return candidate;
     } catch {
       // Not a valid JPEG — keep scanning.
     }
